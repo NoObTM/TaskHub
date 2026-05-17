@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  AppState,
   FlatList,
   Pressable,
   RefreshControl,
@@ -196,6 +197,7 @@ export function TodoScreen() {
     socket.on("connect", () => {
       setSocketStatus("connected");
       socket.emit("auth", { token: getApiToken(), userId });
+      scheduleRefresh();
     });
 
     socket.on("disconnect", () => {
@@ -216,6 +218,16 @@ export function TodoScreen() {
       socket.disconnect();
     };
   }, [refresh, userId]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refresh();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [refresh]);
 
   const handlePullRefresh = useCallback(async () => {
     setRefreshing(true);
