@@ -60,6 +60,44 @@ Rode o app:
 npm start
 ```
 
+## ☁️ Deploy gratuito para testes
+
+### API no Render
+
+O arquivo `render.yaml` já deixa o backend pronto para o Render Blueprint.
+
+No Render:
+
+1. Crie um novo Blueprint usando este repositório.
+2. Confirme o serviço `taskhub-api`.
+3. Preencha `MONGODB_URI`.
+4. Deixe `JWT_SECRET` ser gerado automaticamente ou defina uma chave forte.
+5. Opcionalmente preencha `CLOUDINARY_URL`.
+
+Depois do deploy, copie a URL HTTPS da API.
+
+### APK Android com EAS
+
+Para gerar um APK de teste, configure a URL HTTPS do Render no `.env` local:
+
+```env
+EXPO_PUBLIC_API_URL=https://SUA-API.onrender.com
+```
+
+Depois rode com Expo Go:
+
+```bash
+npm start
+```
+
+Ou gere um APK instalável:
+
+```bash
+npx eas-cli@latest build -p android --profile preview
+```
+
+O perfil `preview` em `eas.json` gera um APK para instalação direta em aparelhos Android.
+
 ## 🔒 Segurança
 
 Arquivos `.env` reais não devem ir para o GitHub. Use apenas `server/.env.example` como modelo.
