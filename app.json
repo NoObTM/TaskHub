@@ -3,6 +3,12 @@
     "name": "TaskHub",
     "slug": "taskhub",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d3edbf18-31d5-497e-afc2-38e36baf6931"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
