@@ -41,6 +41,12 @@
           "defaultChannel": "todo-reminders"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d3edbf18-31d5-497e-afc2-38e36baf6931"
+      }
+    },
+    "owner": "sergiojunior92"
   }
 }
