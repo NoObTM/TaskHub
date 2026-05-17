@@ -1,9 +1,14 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
 import type { Todo } from "@/db/schema";
 import { apiFetch } from "@/db/api";
 
 const TODO_REMINDER_CHANNEL_ID = "todo-reminders";
+
+function getProjectId(): string | undefined {
+  return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -76,12 +81,16 @@ export async function registerPushToken(): Promise<void> {
   if (!ready) return;
 
   try {
-    const result = await Notifications.getExpoPushTokenAsync();
+    const projectId = getProjectId();
+    const result = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    );
     await apiFetch<void>("/users/me/push-token", {
       method: "POST",
       body: JSON.stringify({ pushToken: result.data }),
     });
-  } catch {
+  } catch (error) {
+    if (__DEV__) console.warn("Push registration failed", error);
     // Push is best-effort: local reminders still work in Expo Go/dev environments.
   }
 }

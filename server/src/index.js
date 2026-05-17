@@ -12,6 +12,7 @@ import { Server as SocketIOServer } from "socket.io";
 const app = express();
 const port = process.env.PORT ?? 4000;
 const jwtSecret = process.env.JWT_SECRET;
+const TODO_REMINDER_CHANNEL_ID = "todo-reminders";
 if (!jwtSecret) {
   throw new Error("JWT_SECRET ausente. Defina uma chave forte em server/.env.");
 }
@@ -189,7 +190,14 @@ async function sendPushToUsers(userIds, title, body, data = {}) {
   for (const user of users) {
     for (const pushToken of user.pushTokens ?? []) {
       if (!Expo.isExpoPushToken(pushToken)) continue;
-      messages.push({ to: pushToken, sound: "default", title, body, data });
+      messages.push({
+        to: pushToken,
+        sound: "default",
+        title,
+        body,
+        data,
+        channelId: TODO_REMINDER_CHANNEL_ID,
+      });
     }
   }
 
