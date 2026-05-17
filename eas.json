@@ -6,6 +6,9 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://taskhub-api-zhz5.onrender.com"
+      },
       "android": {
         "buildType": "apk"
       }
