@@ -6,16 +6,46 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "server": "npm --prefix server run dev"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "8.4.4",
+    "@react-navigation/native": "^7.2.3",
+    "@react-navigation/native-stack": "^7.14.13",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
     "expo": "~54.0.33",
+    "expo-crypto": "~15.0.9",
+    "expo-file-system": "~19.0.22",
+    "expo-image-picker": "~17.0.11",
+    "expo-notifications": "~0.32.17",
+    "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
+    "lucide-react-native": "^1.14.0",
+    "mongodb": "^7.2.0",
+    "nativewind": "^4.2.3",
     "react": "19.1.0",
-    "react-native": "0.81.5"
+    "react-hook-form": "^7.75.0",
+    "react-native": "0.81.5",
+    "react-native-keyboard-aware-scroll-view": "^0.9.5",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.1",
+    "react-native-toast-message": "^2.3.3",
+    "react-native-worklets": "0.5.1",
+    "socket.io-client": "^4.8.3",
+    "tailwindcss": "^3.4.17",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "babel-plugin-inline-import": "^3.0.0",
+    "babel-preset-expo": "~54.0.10",
+    "drizzle-kit": "^0.31.10",
     "typescript": "~5.9.2"
   },
   "private": true
