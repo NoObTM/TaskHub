@@ -98,6 +98,8 @@ Mudancas:
 - Altura maxima do sheet em 88% da tela.
 - `ScrollView` com `keyboardShouldPersistTaps="handled"`.
 - `android.softwareKeyboardLayoutMode` em `app.json` definido como `pan` para builds EAS Android.
+- No Android instalado, o sheet tambem sobe pela altura real do teclado recebida em eventos `Keyboard`.
+- Arquivos `server/eas.json` e `server/app.json` nao devem existir; EAS fica configurado na raiz.
 
 Arquivo:
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -56,6 +57,7 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
   const [showPicker, setShowPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const { colorScheme } = useColorScheme();
   const iconColor = colorScheme === "dark" ? "#fafafa" : "#18181b";
 
@@ -75,6 +77,27 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
     }
     setError(null);
   }, [open, currentUserId, editing]);
+
+  useEffect(() => {
+    if (!open) {
+      setKeyboardHeight(0);
+      return;
+    }
+
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [open]);
 
   const userOptions: SelectOption<string>[] = users.map((u) => ({
     value: u.id,
@@ -105,18 +128,19 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
   };
 
   const isEdit = !!editing;
+  const keyboardPadding = Platform.OS === "android" ? keyboardHeight : 0;
 
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
-        <View className="flex-1 justify-end bg-black/50">
+        <View className="flex-1 justify-end bg-black/50" style={{ paddingBottom: keyboardPadding }}>
           <View
             className="rounded-t-3xl border-t border-zinc-200 bg-white pt-2 dark:border-zinc-800 dark:bg-zinc-950"
-            style={{ maxHeight: "88%" }}
+            style={{ maxHeight: keyboardHeight > 0 ? "72%" : "88%" }}
           >
           <View className="mx-auto h-1 w-12 rounded-full bg-zinc-300 dark:bg-zinc-700" />
           <View className="flex-row items-center justify-between px-6 py-4">
