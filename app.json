@@ -23,6 +23,7 @@
     },
     "android": {
       "package": "com.noobtm.taskhub",
+      "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

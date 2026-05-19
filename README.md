@@ -99,11 +99,13 @@ O app usa `EXPO_PUBLIC_API_URL` para decidir qual API chamar. O `eas.json` apont
 EXPO_PUBLIC_API_URL=https://taskhub-api-zhz5.onrender.com
 ```
 
-Para atualizar o app instalado no celular, gere uma nova build EAS ou publique uma atualizacao OTA se o canal de updates estiver configurado:
+Para atualizar o app instalado no celular, gere uma nova build EAS:
 
 ```bash
 npx eas-cli@latest build -p android --profile preview
 ```
+
+O ajuste de teclado no Android depende de configuracao nativa em `app.json`, entao nao entra apenas por update OTA.
 
 Se voce tiver um Static Site separado no Render para o frontend web, faca redeploy desse servico depois do push para o GitHub.
 

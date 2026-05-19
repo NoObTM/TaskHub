@@ -97,10 +97,12 @@ Mudancas:
 - `KeyboardAvoidingView` no modal.
 - Altura maxima do sheet em 88% da tela.
 - `ScrollView` com `keyboardShouldPersistTaps="handled"`.
+- `android.softwareKeyboardLayoutMode` em `app.json` definido como `pan` para builds EAS Android.
 
 Arquivo:
 
 - `src/components/AddTaskModal.tsx`
+- `app.json`
 
 ## Deploy e atualizacao do app
 
@@ -115,7 +117,9 @@ Para ver as mudancas no celular:
 1. Rode o SQL `completed_at` no Supabase.
 2. Faca push do codigo para GitHub.
 3. Redeploy/restart da API no Render, se o deploy automatico nao rodar.
-4. Gere nova build EAS ou publique update OTA para o app instalado, se necessario.
+4. Gere nova build EAS para aplicar mudancas nativas do Android, como teclado.
+
+Update OTA nao aplica alteracoes de `app.json` que mudam configuracao nativa Android. Para o ajuste do teclado no app instalado, gere um APK/build novo.
 
 Comando de build Android preview:
 
