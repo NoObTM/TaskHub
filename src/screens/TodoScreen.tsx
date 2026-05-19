@@ -55,6 +55,7 @@ import {
   cancelTodoReminder,
   registerPushToken,
   scheduleTodoReminder,
+  showTaskNotification,
 } from "@/lib/notifications";
 import { API_URL, getApiToken } from "@/db/api";
 import { io, type Socket } from "socket.io-client";
@@ -129,6 +130,7 @@ export function TodoScreen() {
   const { user, logout, updateAvatar } = useAuth();
   const userId = user!.id;
   const socketRef = useRef<Socket | null>(null);
+  const knownUnreadTodoIdsRef = useRef<Set<string> | null>(null);
   const [tab, setTab] = useState<Tab>("mine");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortKey>("createdAt");
@@ -151,7 +153,7 @@ export function TodoScreen() {
   const isDark = colorScheme === "dark";
   const iconColor = isDark ? "#fafafa" : "#18181b";
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { notifyNewUnread?: boolean } = {}) => {
     try {
       const [mine, byMe, unreadRows, c] = await Promise.all([
         listTodos(userId, { search, limit: PAGE_SIZE * visiblePages, page: 1 }),
@@ -159,10 +161,21 @@ export function TodoScreen() {
         listUnreadAssigned(userId),
         countUnreadAssigned(userId),
       ]);
+      const knownUnreadIds = knownUnreadTodoIdsRef.current;
+      const newUnreadRows = options.notifyNewUnread
+        && knownUnreadIds
+        ? unreadRows.filter((todo) => !knownUnreadIds.has(todo.id))
+        : [];
+
       setMineTodos(mine);
       setAssignedByMe(byMe);
       setNotifications(unreadRows);
       setUnreadCount(c);
+      knownUnreadTodoIdsRef.current = new Set(unreadRows.map((todo) => todo.id));
+
+      for (const todo of newUnreadRows) {
+        showTaskNotification("Nova tarefa", todo.title, { todoId: todo.id }).catch(console.warn);
+      }
     } catch (e: any) {
       Alert.alert("Erro DB", e?.message ?? String(e));
     }
@@ -177,7 +190,15 @@ export function TodoScreen() {
   }, [refresh]);
 
   useEffect(() => {
-    registerPushToken();
+    registerPushToken().then((result) => {
+      if (!result.ok) {
+        Toast.show({
+          type: "info",
+          text1: "Push não registrado",
+          text2: result.message,
+        });
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -190,7 +211,7 @@ export function TodoScreen() {
       if (refreshTimer) return;
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        refresh();
+        refresh({ notifyNewUnread: true });
       }, 250);
     };
 

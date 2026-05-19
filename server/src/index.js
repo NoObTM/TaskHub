@@ -113,11 +113,30 @@ async function sendPushToUsers(userIds, title, body, data = {}) {
       title,
       body,
       data,
+      priority: "high",
       channelId: TODO_REMINDER_CHANNEL_ID,
     }));
 
   const chunks = expo.chunkPushNotifications(messages);
-  await Promise.all(chunks.map((chunk) => expo.sendPushNotificationsAsync(chunk)));
+  const ticketChunks = await Promise.all(chunks.map((chunk) => expo.sendPushNotificationsAsync(chunk)));
+  const receiptIds = [];
+  for (const ticket of ticketChunks.flat()) {
+    if (ticket.status === "ok" && ticket.id) {
+      receiptIds.push(ticket.id);
+    } else if (ticket.status === "error") {
+      console.error("Expo push ticket error", ticket.message, ticket.details);
+    }
+  }
+
+  const receiptChunks = expo.chunkPushNotificationReceiptIds(receiptIds);
+  const receipts = await Promise.all(
+    receiptChunks.map((chunk) => expo.getPushNotificationReceiptsAsync(chunk))
+  );
+  for (const receipt of Object.values(Object.assign({}, ...receipts))) {
+    if (receipt.status === "error") {
+      console.error("Expo push receipt error", receipt.message, receipt.details);
+    }
+  }
 }
 
 io.on("connection", (socket) => {

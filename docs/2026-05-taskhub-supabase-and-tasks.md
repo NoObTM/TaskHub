@@ -123,6 +123,21 @@ Para ver as mudancas no celular:
 
 Update OTA nao aplica alteracoes de `app.json` que mudam configuracao nativa Android. Para o ajuste do teclado no app instalado, gere um APK/build novo.
 
+## Notificacoes push
+
+O fluxo atual usa dois caminhos:
+
+- App aberto: Socket.IO avisa `todos:changed`; se aparecer uma tarefa nova nao lida, o app dispara uma notificacao local imediatamente.
+- App em background/fechado: o backend envia push remoto via Expo Push Service para os `ExpoPushToken`s salvos no usuario.
+
+Arquivos envolvidos:
+
+- `src/lib/notifications.ts`
+- `src/screens/TodoScreen.tsx`
+- `server/src/index.js`
+
+Para Android em build EAS, push remoto depende de credenciais FCM configuradas no projeto EAS. Se o app aberto funcionar mas app fechado nao receber, confira os logs do Render procurando `Expo push ticket error` ou `Expo push receipt error`. Erros como credenciais invalidas indicam que e preciso configurar FCM no EAS e gerar nova build.
+
 Comando de build Android preview:
 
 ```bash

@@ -109,6 +109,12 @@ O ajuste de teclado no Android depende de configuracao nativa em `app.json`, ent
 
 Se voce tiver um Static Site separado no Render para o frontend web, faca redeploy desse servico depois do push para o GitHub.
 
+## Notificacoes
+
+Com o app aberto, novas tarefas recebidas por Socket.IO disparam uma notificacao local.
+
+Com o app em background ou fechado, a API envia push remoto pelo Expo Push Service. No Android buildado por EAS, esse caminho depende de credenciais FCM configuradas no projeto EAS.
+
 ## Notas recentes
 
 A documentacao curta do que foi alterado esta em [docs/2026-05-taskhub-supabase-and-tasks.md](docs/2026-05-taskhub-supabase-and-tasks.md).
