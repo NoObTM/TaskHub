@@ -47,7 +47,7 @@ Para Supabase, preencha no `server/.env`:
 DB_PROVIDER=supabase
 SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
-JWT_SECRET=uma-chave-grande
+JWT_SECRET=Gere sua Chave
 PORT=4000
 ```
 
