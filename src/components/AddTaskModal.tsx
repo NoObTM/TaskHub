@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { CalendarDays, X } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
@@ -100,8 +108,16 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
 
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 justify-end bg-black/50">
-        <View className="rounded-t-3xl border-t border-zinc-200 bg-white pt-2 dark:border-zinc-800 dark:bg-zinc-950">
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View
+            className="rounded-t-3xl border-t border-zinc-200 bg-white pt-2 dark:border-zinc-800 dark:bg-zinc-950"
+            style={{ maxHeight: "88%" }}
+          >
           <View className="mx-auto h-1 w-12 rounded-full bg-zinc-300 dark:bg-zinc-700" />
           <View className="flex-row items-center justify-between px-6 py-4">
             <Text className="text-xl font-bold text-zinc-950 dark:text-zinc-50">
@@ -112,7 +128,12 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
             </Pressable>
           </View>
 
-          <ScrollView className="px-6" contentContainerStyle={{ paddingBottom: 24 }}>
+          <ScrollView
+            className="px-6"
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 32 }}
+          >
             <View className="gap-4">
               <View>
                 <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
@@ -233,8 +254,9 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
               </View>
             </View>
           </ScrollView>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

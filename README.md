@@ -1,33 +1,34 @@
-# TaskHub ✅
+# TaskHub
 
-TaskHub é um app mobile de tarefas colaborativas feito com Expo, React Native e um backend Express com MongoDB.
+TaskHub e um app de tarefas colaborativas feito com Expo, React Native e uma API Express. O backend pode rodar com Supabase ou MongoDB, mas o ambiente atual esta configurado para Supabase.
 
-## ✨ Funcionalidades
+## Funcionalidades
 
-- 🔐 Cadastro e login com autenticação JWT
-- 👤 Avatar de usuário com upload opcional para Cloudinary
-- ✅ Criação, edição, conclusão e exclusão de tarefas
-- 👥 Tarefas atribuídas para você e tarefas que você designou
-- 🔎 Busca, filtros por status e ordenação por prioridade/data
-- 🔔 Notificações push e lembretes locais
-- 📡 Atualização em tempo real com Socket.IO
-- 🕘 Histórico de atividades por tarefa
-- 🌙 Tema claro/escuro persistente
+- Cadastro e login com JWT.
+- Avatar de usuario com upload opcional para Cloudinary.
+- Criacao, edicao, conclusao e exclusao de tarefas.
+- Tarefas para voce e tarefas que voce designou para outras pessoas.
+- Busca, filtros por status e ordenacao por prioridade/data.
+- Notificacoes push e lembretes locais.
+- Atualizacao em tempo real com Socket.IO.
+- Historico de atividades por tarefa.
+- Tema claro/escuro persistente.
+- Data de finalizacao exibida em tarefas concluidas.
 
-## 🧰 Stack
+## Stack
 
 - Expo + React Native
 - TypeScript
 - NativeWind/Tailwind
 - Express
-- MongoDB Atlas + Mongoose
+- Supabase ou MongoDB Atlas
 - Socket.IO
 - JWT
 - Cloudinary opcional
 
-## 🚀 Como rodar
+## Como rodar localmente
 
-Instale as dependências:
+Instale as dependencias:
 
 ```bash
 npm install
@@ -40,7 +41,20 @@ Configure o backend:
 cp server/.env.example server/.env
 ```
 
-Preencha `MONGODB_URI` e `JWT_SECRET` em `server/.env`.
+Para Supabase, preencha no `server/.env`:
+
+```env
+DB_PROVIDER=supabase
+SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
+JWT_SECRET=uma-chave-grande
+PORT=4000
+```
+
+Crie/atualize as tabelas no Supabase usando:
+
+- [server/supabase/schema.sql](server/supabase/schema.sql)
+- [server/supabase/add_completed_at.sql](server/supabase/add_completed_at.sql), se o banco ja existia antes da coluna `completed_at`
 
 Rode a API:
 
@@ -60,44 +74,45 @@ Rode o app:
 npm start
 ```
 
-## ☁️ Deploy gratuito para testes
+## Deploy
 
 ### API no Render
 
-O arquivo `render.yaml` já deixa o backend pronto para o Render Blueprint.
+O arquivo `render.yaml` configura o servico `taskhub-api`.
 
 No Render:
 
-1. Crie um novo Blueprint usando este repositório.
-2. Confirme o serviço `taskhub-api`.
-3. Preencha `MONGODB_URI`.
-4. Deixe `JWT_SECRET` ser gerado automaticamente ou defina uma chave forte.
-5. Opcionalmente preencha `CLOUDINARY_URL`.
+1. Crie ou atualize o Blueprint usando este repositorio.
+2. Confirme o servico `taskhub-api`.
+3. Garanta que `DB_PROVIDER` esteja como `supabase`.
+4. Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`.
+5. Defina `JWT_SECRET` ou deixe o Render gerar uma chave.
+6. Opcionalmente preencha `CLOUDINARY_URL`.
 
-Depois do deploy, copie a URL HTTPS da API.
+Depois de cada push com alteracoes no backend, faca redeploy da API no Render caso o deploy automatico nao esteja ativo.
 
-### APK Android com EAS
+### Frontend/mobile
 
-Para gerar um APK de teste, configure a URL HTTPS do Render no `.env` local:
+O app usa `EXPO_PUBLIC_API_URL` para decidir qual API chamar. O `eas.json` aponta para:
 
 ```env
-EXPO_PUBLIC_API_URL=https://SUA-API.onrender.com
+EXPO_PUBLIC_API_URL=https://taskhub-api-zhz5.onrender.com
 ```
 
-Depois rode com Expo Go:
-
-```bash
-npm start
-```
-
-Ou gere um APK instalável:
+Para atualizar o app instalado no celular, gere uma nova build EAS ou publique uma atualizacao OTA se o canal de updates estiver configurado:
 
 ```bash
 npx eas-cli@latest build -p android --profile preview
 ```
 
-O perfil `preview` em `eas.json` gera um APK para instalação direta em aparelhos Android.
+Se voce tiver um Static Site separado no Render para o frontend web, faca redeploy desse servico depois do push para o GitHub.
 
-## 🔒 Segurança
+## Notas recentes
 
-Arquivos `.env` reais não devem ir para o GitHub. Use apenas `server/.env.example` como modelo.
+A documentacao curta do que foi alterado esta em [docs/2026-05-taskhub-supabase-and-tasks.md](docs/2026-05-taskhub-supabase-and-tasks.md).
+
+## Seguranca
+
+Arquivos `.env` reais nao devem ir para o GitHub. Use apenas `.env.example` como modelo.
+
+Nunca exponha `SUPABASE_SERVICE_ROLE_KEY` no app mobile/web. Ela deve existir somente no backend.

@@ -38,6 +38,14 @@ function formatDate(ts: number): string {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
+function formatShortDate(ts: number): string {
+  const d = new Date(ts);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = String(d.getFullYear()).slice(-2);
+  return `${day}/${month}/${year}`;
+}
+
 function isOverdue(ts: number): boolean {
   return ts < Date.now() - 24 * 60 * 60 * 1000;
 }
@@ -123,6 +131,14 @@ export function TodoItem({
                   )}
                 >
                   {formatDate(todo.dueDate)}
+                </Text>
+              </View>
+            )}
+            {done && todo.completedAt && (
+              <View className="flex-row items-center gap-1">
+                <CheckCircle2 size={12} color="#22c55e" />
+                <Text className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  Finalizada em {formatShortDate(todo.completedAt)}
                 </Text>
               </View>
             )}

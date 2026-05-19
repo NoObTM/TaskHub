@@ -14,6 +14,7 @@ export type Todo = {
   assigneeId: string;
   title: string;
   done: boolean;
+  completedAt: number | null;
   priority: Priority;
   dueDate: number | null;
   notificationId: string | null;

@@ -35,6 +35,7 @@ const todoSchema = new mongoose.Schema(
     assigneeId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     title: { type: String, required: true, trim: true },
     done: { type: Boolean, default: false },
+    completedAt: { type: Number, default: null },
     priority: { type: String, enum: ["low", "medium", "high"], default: "medium" },
     dueDate: { type: Number, default: null },
     notificationId: { type: String, default: null },
