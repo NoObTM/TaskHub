@@ -324,15 +324,23 @@ app.patch("/todos/:id", requireAuth, asyncRoute(async (req, res) => {
   const title = String(req.body.title ?? "").trim();
   if (!title) return res.json(null);
   if (!requireId(res, req.params.id)) return;
-  if (!requireId(res, req.body.assigneeId)) return;
   const authedUserId = getAuthedUserId(req);
+  const existingTodo = await store.findTodoById(req.params.id);
 
-  const assigneeExists = await store.userExistsById(req.body.assigneeId);
+  if (!existingTodo) return res.status(404).json({ message: "Tarefa não encontrada" });
+  if (existingTodo.creatorId !== authedUserId) {
+    return res.status(403).json({ message: "Apenas o criador pode editar" });
+  }
+
+  const assigneeId = store.isValidId(req.body.assigneeId)
+    ? req.body.assigneeId
+    : existingTodo.assigneeId;
+  const assigneeExists = await store.userExistsById(assigneeId);
   if (!assigneeExists) return res.status(400).json({ message: "Usuário inválido" });
 
   const todo = await store.updateTodoByCreator(req.params.id, authedUserId, {
     title,
-    assigneeId: req.body.assigneeId,
+    assigneeId,
     priority: req.body.priority,
     dueDate: req.body.dueDate ?? null,
   });

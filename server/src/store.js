@@ -53,6 +53,10 @@ const User = mongoose.model("User", userSchema);
 const Todo = mongoose.model("Todo", todoSchema);
 const Activity = mongoose.model("Activity", activitySchema);
 
+function mongoRefId(ref) {
+  return String(ref?._id ?? ref);
+}
+
 function mapMongoUser(user) {
   if (!user) return null;
   return {
@@ -71,8 +75,8 @@ function mapMongoTodo(todo) {
   if (!todo) return null;
   return {
     id: String(todo._id),
-    creatorId: String(todo.creatorId),
-    assigneeId: String(todo.assigneeId),
+    creatorId: mongoRefId(todo.creatorId),
+    assigneeId: mongoRefId(todo.assigneeId),
     title: todo.title,
     done: todo.done,
     completedAt: todo.completedAt ?? null,

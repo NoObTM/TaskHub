@@ -132,7 +132,7 @@ export function TodoScreen() {
   const socketRef = useRef<Socket | null>(null);
   const knownUnreadTodoIdsRef = useRef<Set<string> | null>(null);
   const [tab, setTab] = useState<Tab>("mine");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
   const [sortBy, setSortBy] = useState<SortKey>("createdAt");
   const [search, setSearch] = useState("");
   const [visiblePages, setVisiblePages] = useState(1);
@@ -262,7 +262,7 @@ export function TodoScreen() {
   };
 
   const openEdit = (todo: TodoWithUsers) => {
-    if (todo.creatorId !== userId) {
+    if (tab !== "assigned-by-me" && todo.creatorId !== userId) {
       Toast.show({
         type: "info",
         text1: "Só o criador pode editar esta tarefa",
@@ -423,9 +423,9 @@ export function TodoScreen() {
   const canClearCompleted = statusFilter === "done" && list.some((t) => t.done);
 
   const filterChips: { value: StatusFilter; label: string }[] = [
-    { value: "all", label: `Todas (${baseList.length})` },
     { value: "pending", label: `Pendentes (${baseList.filter((t) => !t.done).length})` },
     { value: "done", label: `Concluídas (${baseList.filter((t) => t.done).length})` },
+    { value: "all", label: `Todas (${baseList.length})` },
   ];
 
   return (
@@ -615,6 +615,7 @@ export function TodoScreen() {
             currentUserId={userId}
             mode={tab}
             onToggle={handleToggle}
+            onEdit={openEdit}
             onDelete={setPendingDelete}
             onHistory={openActivity}
             onLongPress={openEdit}
@@ -642,7 +643,7 @@ export function TodoScreen() {
           <Button
             label="Limpar concluídas"
             variant="outline"
-            size="sm"
+            size="default"
             onPress={handleClear}
           />
         </View>

@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { CalendarDays, CheckCircle2, Circle, History, Trash2 } from "lucide-react-native";
+import { CalendarDays, CheckCircle2, Circle, History, Pencil, Trash2 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import type { TodoWithUsers } from "@/db/database";
 import { Avatar } from "@/components/ui/Avatar";
@@ -10,6 +10,7 @@ type Props = {
   currentUserId: string;
   mode: "mine" | "assigned-by-me";
   onToggle: (id: string, done: boolean) => void;
+  onEdit: (todo: TodoWithUsers) => void;
   onDelete: (todo: TodoWithUsers) => void;
   onHistory: (todo: TodoWithUsers) => void;
   onLongPress?: (todo: TodoWithUsers) => void;
@@ -55,6 +56,7 @@ export function TodoItem({
   currentUserId,
   mode,
   onToggle,
+  onEdit,
   onDelete,
   onHistory,
   onLongPress,
@@ -67,6 +69,7 @@ export function TodoItem({
   const isFromOther = todo.creatorId !== currentUserId;
   const overdue = todo.dueDate != null && !done && isOverdue(todo.dueDate);
   const canToggle = mode === "mine";
+  const canEdit = mode === "assigned-by-me" || todo.creatorId === currentUserId;
   const canDelete = mode === "assigned-by-me" || todo.creatorId === currentUserId;
 
   const showPerson =
@@ -145,9 +148,22 @@ export function TodoItem({
           </View>
         </View>
         <View className="flex-row items-center">
+          {canEdit && (
+            <Pressable
+              onPress={() => onEdit(todo)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Editar tarefa"
+              className="h-9 w-9 items-center justify-center"
+            >
+              <Pencil size={20} color={metaIconColor} />
+            </Pressable>
+          )}
           <Pressable
             onPress={() => onHistory(todo)}
             hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Ver histórico da tarefa"
             className="h-9 w-9 items-center justify-center"
           >
             <History size={21} color={metaIconColor} />

@@ -104,6 +104,16 @@ export function AddTaskModal({ open, currentUserId, editing, onClose, onSubmit }
     label: u.id === currentUserId ? `${u.name} (você)` : u.name,
   }));
 
+  if (
+    editing?.assigneeId &&
+    !userOptions.some((option) => option.value === editing.assigneeId)
+  ) {
+    userOptions.unshift({
+      value: editing.assigneeId,
+      label: `${editing.assigneeName || "Responsável atual"} (atual)`,
+    });
+  }
+
   const handleSubmit = async () => {
     if (!title.trim()) {
       setError("Informe o título da tarefa");
