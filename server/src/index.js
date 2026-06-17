@@ -200,6 +200,25 @@ app.post("/auth/login", asyncRoute(async (req, res) => {
   res.json(authResponse(user));
 }));
 
+app.patch("/auth/reset-password", asyncRoute(async (req, res) => {
+  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const password = String(req.body.password ?? "");
+
+  if (!email || password.length < 6) {
+    return res.status(400).json({ message: "Dados inválidos" });
+  }
+
+  const salt = crypto.randomBytes(16).toString("hex");
+  const user = await store.updateUserPasswordByEmail(
+    email,
+    salt,
+    hashPassword(password, salt)
+  );
+
+  if (!user) return res.status(404).json({ message: "E-mail não encontrado" });
+  res.status(204).end();
+}));
+
 app.get("/users", requireAuth, asyncRoute(async (_, res) => {
   const users = await store.listUsers();
   res.json(users.map(publicUser));
@@ -409,6 +428,10 @@ app.delete("/todos/:id", requireAuth, asyncRoute(async (req, res) => {
   emitTodosChanged([userId, todo.assigneeId]);
   res.status(204).end();
 }));
+
+app.use((_req, res) => {
+  res.status(404).json({ message: "Rota não encontrada" });
+});
 
 app.use((err, _req, res, _next) => {
   console.error(err);

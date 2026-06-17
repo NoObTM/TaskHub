@@ -4,40 +4,44 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Moon, Sun } from "lucide-react-native";
-import { useThemePersist } from "@/context/ThemeContext";
+import { ArrowLeft } from "lucide-react-native";
+import { useColorScheme } from "nativewind";
+import Toast from "react-native-toast-message";
 import { AlertModal } from "@/components/ui/AlertModal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { useAuth } from "@/context/AuthContext";
-import { loginSchema, type LoginInput } from "@/lib/schemas";
+import { resetPassword } from "@/db/auth";
+import { resetPasswordSchema, type ResetPasswordInput } from "@/lib/schemas";
 
 type Props = {
-  onNavigateSignup: () => void;
-  onNavigateResetPassword: () => void;
+  onNavigateLogin: () => void;
 };
 
-export function LoginScreen({ onNavigateSignup, onNavigateResetPassword }: Props) {
-  const { login } = useAuth();
+export function ResetPasswordScreen({ onNavigateLogin }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { colorScheme, toggle: toggleColorScheme } = useThemePersist();
-  const isDark = colorScheme === "dark";
-  const iconColor = isDark ? "#fafafa" : "#18181b";
+  const { colorScheme } = useColorScheme();
+  const iconColor = colorScheme === "dark" ? "#fafafa" : "#18181b";
 
   const {
     control,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginInput>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+  } = useForm<ResetPasswordInput>({
+    resolver: zodResolver(resetPasswordSchema),
+    defaultValues: { email: "", password: "", confirmPassword: "" },
   });
 
-  const onSubmit = async (data: LoginInput) => {
+  const onSubmit = async (data: ResetPasswordInput) => {
     setSubmitting(true);
     try {
-      await login(data.email, data.password);
+      await resetPassword(data.email, data.password);
+      Toast.show({
+        type: "success",
+        text1: "Senha atualizada",
+        text2: "Entre novamente com sua nova senha.",
+      });
+      onNavigateLogin();
     } catch (e: any) {
       setErrorMessage(e.message ?? String(e));
     } finally {
@@ -47,13 +51,9 @@ export function LoginScreen({ onNavigateSignup, onNavigateResetPassword }: Props
 
   return (
     <SafeAreaView className="flex-1 bg-white dark:bg-zinc-950" edges={["top", "left", "right"]}>
-      <View className="flex-row justify-end px-5 py-3">
-        <Pressable
-          onPress={toggleColorScheme}
-          hitSlop={8}
-          className="h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 active:bg-zinc-100 dark:border-zinc-800 dark:active:bg-zinc-900"
-        >
-          {isDark ? <Sun size={20} color={iconColor} /> : <Moon size={20} color={iconColor} />}
+      <View className="flex-row items-center px-5 py-3">
+        <Pressable onPress={onNavigateLogin} hitSlop={8} className="p-2">
+          <ArrowLeft size={22} color={iconColor} />
         </Pressable>
       </View>
 
@@ -64,9 +64,9 @@ export function LoginScreen({ onNavigateSignup, onNavigateResetPassword }: Props
         extraScrollHeight={80}
         enableResetScrollToCoords={false}
       >
-        <Text className="text-3xl font-bold text-zinc-950 dark:text-zinc-50">Bem-vindo</Text>
+        <Text className="text-3xl font-bold text-zinc-950 dark:text-zinc-50">Redefinir senha</Text>
         <Text className="mt-2 text-base text-zinc-500 dark:text-zinc-400">
-          Entre na sua conta para continuar
+          Informe seu e-mail e escolha uma nova senha
         </Text>
 
         <View className="mt-8 gap-4">
@@ -96,14 +96,14 @@ export function LoginScreen({ onNavigateSignup, onNavigateResetPassword }: Props
 
           <View>
             <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
-              Senha
+              Nova senha
             </Text>
             <Controller
               control={control}
               name="password"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
-                  placeholder="••••••"
+                  placeholder="MÃ­nimo 6 caracteres"
                   secureTextEntry
                   value={value}
                   onChangeText={onChange}
@@ -116,35 +116,42 @@ export function LoginScreen({ onNavigateSignup, onNavigateResetPassword }: Props
             )}
           </View>
 
-          <View className="items-end">
-            <Pressable onPress={onNavigateResetPassword} hitSlop={6}>
-              <Text className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                Esqueci minha senha
+          <View>
+            <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
+              Confirmar nova senha
+            </Text>
+            <Controller
+              control={control}
+              name="confirmPassword"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <Input
+                  placeholder="Repita a nova senha"
+                  secureTextEntry
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                />
+              )}
+            />
+            {errors.confirmPassword && (
+              <Text className="mt-1 text-xs text-red-500">
+                {errors.confirmPassword.message}
               </Text>
-            </Pressable>
+            )}
           </View>
 
           <Button
-            label={submitting ? "Entrando..." : "Entrar"}
+            label={submitting ? "Salvando..." : "Salvar nova senha"}
             onPress={handleSubmit(onSubmit)}
             disabled={submitting}
           />
-        </View>
-
-        <View className="mt-6 flex-row justify-center">
-          <Text className="text-sm text-zinc-500 dark:text-zinc-400">Não tem conta? </Text>
-          <Pressable onPress={onNavigateSignup} hitSlop={4}>
-            <Text className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-              Cadastre-se
-            </Text>
-          </Pressable>
         </View>
       </KeyboardAwareScrollView>
 
       <AlertModal
         open={errorMessage !== null}
         variant="error"
-        title="Erro ao entrar"
+        title="Erro ao redefinir"
         description={errorMessage ?? undefined}
         onClose={() => setErrorMessage(null)}
       />

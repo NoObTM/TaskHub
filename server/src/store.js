@@ -206,6 +206,12 @@ function createMongoStore() {
     userExistsByEmail: async (email) => Boolean(await User.exists({ email })),
     createUser: async ({ name, email, salt, passwordHash }) =>
       mapMongoUser(await User.create({ name, email, salt, passwordHash })),
+    updateUserPasswordByEmail: async (email, salt, passwordHash) =>
+      mapMongoUser(await User.findOneAndUpdate(
+        { email },
+        { salt, passwordHash },
+        { new: true }
+      )),
     listUsers: async () => (await User.find().sort({ name: 1 })).map(mapMongoUser),
     updateUserAvatar: async (id, avatarUri) =>
       mapMongoUser(await User.findByIdAndUpdate(id, { avatarUri }, { new: true })),
@@ -325,6 +331,16 @@ function createSupabaseStore() {
         .insert({ name, email, salt, password_hash: passwordHash })
         .select(USER_FIELDS)
         .single();
+      if (error) throw error;
+      return mapSupabaseUser(data);
+    },
+    updateUserPasswordByEmail: async (email, salt, passwordHash) => {
+      const { data, error } = await client
+        .from("users")
+        .update({ salt, password_hash: passwordHash })
+        .eq("email", email)
+        .select(USER_FIELDS)
+        .maybeSingle();
       if (error) throw error;
       return mapSupabaseUser(data);
     },

@@ -2,13 +2,22 @@ import { useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import { LoginScreen } from "@/screens/LoginScreen";
+import { ResetPasswordScreen } from "@/screens/ResetPasswordScreen";
 import { SignupScreen } from "@/screens/SignupScreen";
 import { TodoScreen } from "@/screens/TodoScreen";
 
 function AuthFlow() {
-  const [screen, setScreen] = useState<"login" | "signup">("login");
+  const [screen, setScreen] = useState<"login" | "signup" | "reset-password">("login");
   if (screen === "login") {
-    return <LoginScreen onNavigateSignup={() => setScreen("signup")} />;
+    return (
+      <LoginScreen
+        onNavigateSignup={() => setScreen("signup")}
+        onNavigateResetPassword={() => setScreen("reset-password")}
+      />
+    );
+  }
+  if (screen === "reset-password") {
+    return <ResetPasswordScreen onNavigateLogin={() => setScreen("login")} />;
   }
   return <SignupScreen onNavigateLogin={() => setScreen("login")} />;
 }

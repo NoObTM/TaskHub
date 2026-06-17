@@ -34,10 +34,15 @@ export async function apiFetch<T>(
   });
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  const contentType = res.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("application/json");
+  const data = text && isJson ? JSON.parse(text) : null;
 
   if (!res.ok) {
-    throw new ApiError(data?.message ?? "Erro na API", res.status);
+    throw new ApiError(
+      data?.message ?? (text || `Erro na API (${res.status})`),
+      res.status
+    );
   }
 
   return data as T;

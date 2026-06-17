@@ -59,6 +59,13 @@ export async function loginUser(
   }
 }
 
+export function resetPassword(email: string, password: string): Promise<void> {
+  return apiFetch<void>("/auth/reset-password", {
+    method: "PATCH",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
 export async function listAllUsers(): Promise<User[]> {
   return apiFetch<User[]>("/users");
 }
