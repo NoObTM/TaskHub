@@ -93,6 +93,13 @@ export function updateTodo(input: UpdateTodoInput): Promise<Todo | null> {
   });
 }
 
+export function reorderTodos(todoIds: string[]): Promise<void> {
+  return apiFetch<void>("/todos/reorder", {
+    method: "PATCH",
+    body: JSON.stringify({ todoIds }),
+  });
+}
+
 export function updateTodoNotificationId(
   id: string,
   notificationId: string | null

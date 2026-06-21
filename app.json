@@ -47,7 +47,8 @@
         {
           "defaultChannel": "todo-reminders"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

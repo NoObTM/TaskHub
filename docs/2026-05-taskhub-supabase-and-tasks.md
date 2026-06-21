@@ -1,6 +1,6 @@
 # TaskHub - notas de mudancas
 
-Data: 2026-05-18
+Data: 2026-05-19
 
 Este documento resume o que foi feito para evitar precisar revisar o codigo todo nos proximos dias.
 
@@ -24,6 +24,7 @@ DB_PROVIDER=supabase
 SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
 JWT_SECRET=uma-chave-grande
+BCRYPT_ROUNDS=12
 CLOUDINARY_URL=opcional
 ```
 
@@ -57,6 +58,37 @@ alter table public.todos
 O mesmo SQL esta em:
 
 - `server/supabase/add_completed_at.sql`
+
+## Endurecimento de seguranca
+
+Em 2026-06-20 foram adicionadas protecoes de autenticacao e reset de senha:
+
+- senhas novas com `bcryptjs`;
+- migracao automatica de hash antigo no proximo login;
+- rate limit para cadastro, login e reset;
+- reset de senha por codigo temporario de 6 digitos;
+- Socket.IO exigindo JWT;
+- token mobile em `expo-secure-store`;
+- headers HTTP com `helmet`;
+- CORS configuravel por `CORS_ORIGINS`.
+
+Para Supabase ja existente, rode tambem:
+
+```sql
+alter table public.users
+add column if not exists password_reset_token_hash text;
+
+alter table public.users
+add column if not exists password_reset_expires_at bigint;
+```
+
+Arquivo:
+
+- `server/supabase/add_security_password_reset.sql`
+
+Mais detalhes:
+
+- `docs/2026-06-security-hardening.md`
 
 ## Tarefas concluidas
 
@@ -122,6 +154,11 @@ Para ver as mudancas no celular:
 4. Gere nova build EAS para aplicar mudancas nativas do Android, como teclado.
 
 Update OTA nao aplica alteracoes de `app.json` que mudam configuracao nativa Android. Para o ajuste do teclado no app instalado, gere um APK/build novo.
+
+EAS Updates publicados no branch `preview`:
+
+- `edb625d8-4a76-4987-9b65-f0370a4cdbed`: ajuste inicial do modal de tarefa acima do teclado.
+- `696d731b-707a-4526-8f0e-86c7339abae1`: melhorias JS de notificacao e fallback local com app aberto.
 
 ## Notificacoes push
 

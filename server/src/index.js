@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
 import cors from "cors";
 import "dotenv/config";
 import express from "express";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 import http from "node:http";
 import { v2 as cloudinary } from "cloudinary";
 import { Expo } from "expo-server-sdk";
@@ -10,9 +13,12 @@ import { Server as SocketIOServer } from "socket.io";
 import { createStore } from "./store.js";
 
 const app = express();
+app.set("trust proxy", 1);
 const port = process.env.PORT ?? 4000;
 const jwtSecret = process.env.JWT_SECRET;
 const TODO_REMINDER_CHANNEL_ID = "todo-reminders";
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS ?? 12);
+const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
 if (!jwtSecret) {
   throw new Error("JWT_SECRET ausente. Defina uma chave forte em server/.env.");
 }
@@ -20,15 +26,65 @@ if (!jwtSecret) {
 const store = createStore();
 const expo = new Expo();
 const httpServer = http.createServer(app);
+const allowedOrigins = (process.env.CORS_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("Origem nao permitida pelo CORS"));
+  },
+};
 const io = new SocketIOServer(httpServer, {
-  cors: { origin: "*" },
+  cors: allowedOrigins.length > 0 ? { origin: allowedOrigins } : { origin: "*" },
 });
 
-app.use(cors());
+app.use(helmet());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "8mb" }));
 
-function hashPassword(password, salt) {
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Muitas tentativas. Aguarde alguns minutos e tente novamente." },
+});
+
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Muitas tentativas de redefinicao. Tente novamente em alguns minutos." },
+});
+
+function legacyHashPassword(password, salt) {
   return crypto.createHash("sha256").update(`${salt}:${password}`).digest("hex");
+}
+
+async function hashPassword(password) {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+async function verifyPassword(password, user) {
+  if (!user?.passwordHash) return false;
+  if (user.passwordHash.startsWith("$2")) {
+    return bcrypt.compare(password, user.passwordHash);
+  }
+  return legacyHashPassword(password, user.salt) === user.passwordHash;
+}
+
+function hashResetCode(code) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+function createResetCode() {
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 function publicUser(user) {
@@ -57,24 +113,24 @@ function asyncRoute(handler) {
 async function requireAuth(req, res, next) {
   const header = req.headers.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!token) return res.status(401).json({ message: "Sessão inválida" });
+  if (!token) return res.status(401).json({ message: "Sessao invalida" });
 
   try {
     const payload = jwt.verify(token, jwtSecret);
     const userId = payload?.sub;
     if (!userId || !store.isValidId(userId)) {
-      return res.status(401).json({ message: "Sessão inválida" });
+      return res.status(401).json({ message: "Sessao invalida" });
     }
     const user = await store.findUserById(userId);
-    if (!user) return res.status(401).json({ message: "Sessão inválida" });
+    if (!user) return res.status(401).json({ message: "Sessao invalida" });
     req.user = user;
     next();
   } catch {
-    return res.status(401).json({ message: "Sessão inválida" });
+    return res.status(401).json({ message: "Sessao invalida" });
   }
 }
 
-function requireId(res, value, message = "Dados inválidos") {
+function requireId(res, value, message = "Dados invalidos") {
   if (!value || !store.isValidId(value)) {
     res.status(400).json({ message });
     return false;
@@ -88,6 +144,9 @@ function getAuthedUserId(req) {
 
 async function uploadAvatarIfConfigured(avatarUri) {
   if (!avatarUri?.startsWith("data:image/")) return avatarUri ?? null;
+  if (avatarUri.length > 2_000_000) {
+    throw new Error("Avatar muito grande");
+  }
   if (!process.env.CLOUDINARY_URL && !process.env.CLOUDINARY_CLOUD_NAME) {
     return avatarUri;
   }
@@ -140,18 +199,12 @@ async function sendPushToUsers(userIds, title, body, data = {}) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("auth", ({ token, userId }) => {
-    if (token) {
-      try {
-        const payload = jwt.verify(token, jwtSecret);
-        if (payload?.sub) socket.join(`user:${payload.sub}`);
-        return;
-      } catch {
-        return;
-      }
-    }
-    if (userId && store.isValidId(userId)) {
-      socket.join(`user:${userId}`);
+  socket.on("auth", ({ token }) => {
+    try {
+      const payload = jwt.verify(String(token ?? ""), jwtSecret);
+      if (payload?.sub) socket.join(`user:${payload.sub}`);
+    } catch {
+      socket.disconnect(true);
     }
   });
 });
@@ -165,57 +218,84 @@ function emitTodosChanged(userIds) {
 
 app.get("/health", (_, res) => res.json({ ok: true, db: store.provider }));
 
-app.post("/auth/register", asyncRoute(async (req, res) => {
+app.post("/auth/register", authLimiter, asyncRoute(async (req, res) => {
   const name = String(req.body.name ?? "").trim();
   const email = String(req.body.email ?? "").trim().toLowerCase();
   const password = String(req.body.password ?? "");
 
   if (!name || !email || password.length < 6) {
-    return res.status(400).json({ message: "Dados inválidos" });
+    return res.status(400).json({ message: "Dados invalidos" });
   }
 
   const exists = await store.userExistsByEmail(email);
-  if (exists) return res.status(409).json({ message: "E-mail já cadastrado" });
+  if (exists) return res.status(409).json({ message: "E-mail ja cadastrado" });
 
-  const salt = crypto.randomBytes(16).toString("hex");
   const user = await store.createUser({
     name,
     email,
-    salt,
-    passwordHash: hashPassword(password, salt),
+    salt: "bcrypt",
+    passwordHash: await hashPassword(password),
   });
 
   res.status(201).json(authResponse(user));
 }));
 
-app.post("/auth/login", asyncRoute(async (req, res) => {
+app.post("/auth/login", authLimiter, asyncRoute(async (req, res) => {
   const email = String(req.body.email ?? "").trim().toLowerCase();
   const password = String(req.body.password ?? "");
   const user = await store.findUserByEmail(email);
 
-  if (!user || hashPassword(password, user.salt) !== user.passwordHash) {
-    return res.status(401).json({ message: "E-mail ou senha inválidos" });
+  if (!user || !(await verifyPassword(password, user))) {
+    return res.status(401).json({ message: "E-mail ou senha invalidos" });
   }
 
-  res.json(authResponse(user));
+  let currentUser = user;
+  if (!user.passwordHash.startsWith("$2")) {
+    currentUser = await store.updateUserPasswordByEmail(email, "bcrypt", await hashPassword(password));
+  }
+
+  res.json(authResponse(currentUser));
 }));
 
-app.patch("/auth/reset-password", asyncRoute(async (req, res) => {
+app.post("/auth/reset-password/request", resetLimiter, asyncRoute(async (req, res) => {
   const email = String(req.body.email ?? "").trim().toLowerCase();
-  const password = String(req.body.password ?? "");
 
-  if (!email || password.length < 6) {
-    return res.status(400).json({ message: "Dados inválidos" });
+  if (!email) {
+    return res.status(400).json({ message: "Dados invalidos" });
   }
 
-  const salt = crypto.randomBytes(16).toString("hex");
-  const user = await store.updateUserPasswordByEmail(
+  const resetCode = createResetCode();
+  const user = await store.setPasswordResetCode(
     email,
-    salt,
-    hashPassword(password, salt)
+    hashResetCode(resetCode),
+    Date.now() + PASSWORD_RESET_TTL_MS
   );
 
-  if (!user) return res.status(404).json({ message: "E-mail não encontrado" });
+  if (user) {
+    console.info(`[password-reset] Codigo para ${email}: ${resetCode} (expira em 15 min)`);
+  }
+
+  res.status(204).end();
+}));
+
+app.patch("/auth/reset-password", resetLimiter, asyncRoute(async (req, res) => {
+  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const resetCode = String(req.body.resetCode ?? "").trim();
+  const password = String(req.body.password ?? "");
+
+  if (!email || !/^\d{6}$/.test(resetCode) || password.length < 6) {
+    return res.status(400).json({ message: "Dados invalidos" });
+  }
+
+  const user = await store.updateUserPasswordByResetCode(
+    email,
+    hashResetCode(resetCode),
+    "bcrypt",
+    await hashPassword(password),
+    Date.now()
+  );
+
+  if (!user) return res.status(400).json({ message: "Codigo invalido ou expirado" });
   res.status(204).end();
 }));
 
@@ -246,7 +326,7 @@ app.patch("/users/:id/avatar", requireAuth, asyncRoute(async (req, res) => {
 app.post("/users/me/push-token", requireAuth, asyncRoute(async (req, res) => {
   const pushToken = String(req.body.pushToken ?? "");
   if (!Expo.isExpoPushToken(pushToken)) {
-    return res.status(400).json({ message: "Push token inválido" });
+    return res.status(400).json({ message: "Push token invalido" });
   }
 
   await store.addPushToken(req.user.id, pushToken);
@@ -292,7 +372,7 @@ app.post("/todos", requireAuth, asyncRoute(async (req, res) => {
     store.userExistsById(req.body.assigneeId),
   ]);
   if (!creatorExists || !assigneeExists) {
-    return res.status(400).json({ message: "Usuário inválido" });
+    return res.status(400).json({ message: "Usuario invalido" });
   }
 
   const todo = await store.createTodo({
@@ -330,11 +410,22 @@ app.patch("/todos/seen", requireAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
+app.patch("/todos/reorder", requireAuth, asyncRoute(async (req, res) => {
+  const todoIds = Array.isArray(req.body.todoIds)
+    ? req.body.todoIds.filter((id) => store.isValidId(id))
+    : [];
+  if (todoIds.length === 0) return res.status(400).json({ message: "Dados invalidos" });
+
+  const result = await store.reorderTodos(getAuthedUserId(req), todoIds);
+  emitTodosChanged(result.affectedUserIds);
+  res.status(204).end();
+}));
+
 app.get("/todos/:id/activity", requireAuth, asyncRoute(async (req, res) => {
   if (!requireId(res, req.params.id)) return;
   const authedUserId = getAuthedUserId(req);
   const todo = await store.getVisibleTodo(req.params.id, authedUserId);
-  if (!todo) return res.status(404).json({ message: "Tarefa não encontrada" });
+  if (!todo) return res.status(404).json({ message: "Tarefa nao encontrada" });
 
   res.json(await store.listActivities(req.params.id));
 }));
@@ -346,7 +437,7 @@ app.patch("/todos/:id", requireAuth, asyncRoute(async (req, res) => {
   const authedUserId = getAuthedUserId(req);
   const existingTodo = await store.findTodoById(req.params.id);
 
-  if (!existingTodo) return res.status(404).json({ message: "Tarefa não encontrada" });
+  if (!existingTodo) return res.status(404).json({ message: "Tarefa nao encontrada" });
   if (existingTodo.creatorId !== authedUserId) {
     return res.status(403).json({ message: "Apenas o criador pode editar" });
   }
@@ -355,7 +446,7 @@ app.patch("/todos/:id", requireAuth, asyncRoute(async (req, res) => {
     ? req.body.assigneeId
     : existingTodo.assigneeId;
   const assigneeExists = await store.userExistsById(assigneeId);
-  if (!assigneeExists) return res.status(400).json({ message: "Usuário inválido" });
+  if (!assigneeExists) return res.status(400).json({ message: "Usuario invalido" });
 
   const todo = await store.updateTodoByCreator(req.params.id, authedUserId, {
     title,
@@ -364,7 +455,7 @@ app.patch("/todos/:id", requireAuth, asyncRoute(async (req, res) => {
     dueDate: req.body.dueDate ?? null,
   });
 
-  if (!todo) return res.status(404).json({ message: "Tarefa não encontrada" });
+  if (!todo) return res.status(404).json({ message: "Tarefa nao encontrada" });
   await store.createActivity(todo.id, authedUserId, "updated", "Tarefa atualizada");
   if (todo.assigneeId !== authedUserId) {
     sendPushToUsers([todo.assigneeId], "Tarefa atualizada", title, {
@@ -396,12 +487,12 @@ app.patch("/todos/:id/toggle", requireAuth, asyncRoute(async (req, res) => {
       todo.id,
       authedUserId,
       done ? "completed" : "reopened",
-      done ? "Tarefa concluída" : "Tarefa reaberta"
+      done ? "Tarefa concluida" : "Tarefa reaberta"
     );
     if (todo.creatorId !== authedUserId) {
       sendPushToUsers(
         [todo.creatorId],
-        done ? "Tarefa concluída" : "Tarefa reaberta",
+        done ? "Tarefa concluida" : "Tarefa reaberta",
         todo.title,
         { todoId: todo.id }
       ).catch(console.error);
@@ -414,23 +505,23 @@ app.patch("/todos/:id/toggle", requireAuth, asyncRoute(async (req, res) => {
 app.delete("/todos/:id", requireAuth, asyncRoute(async (req, res) => {
   const userId = getAuthedUserId(req);
   if (!store.isValidId(req.params.id) || !store.isValidId(userId)) {
-    return res.status(400).json({ message: "Dados inválidos" });
+    return res.status(400).json({ message: "Dados invalidos" });
   }
 
   const todo = await store.findTodoById(req.params.id);
-  if (!todo) return res.status(404).json({ message: "Tarefa não encontrada" });
+  if (!todo) return res.status(404).json({ message: "Tarefa nao encontrada" });
   if (todo.creatorId !== userId) {
     return res.status(403).json({ message: "Apenas o criador pode excluir" });
   }
 
-  await store.createActivity(todo.id, userId, "deleted", "Tarefa excluída");
+  await store.createActivity(todo.id, userId, "deleted", "Tarefa excluida");
   await store.deleteTodoByCreator(req.params.id, userId);
   emitTodosChanged([userId, todo.assigneeId]);
   res.status(204).end();
 }));
 
 app.use((_req, res) => {
-  res.status(404).json({ message: "Rota não encontrada" });
+  res.status(404).json({ message: "Rota nao encontrada" });
 });
 
 app.use((err, _req, res, _next) => {

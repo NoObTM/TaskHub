@@ -48,6 +48,7 @@ DB_PROVIDER=supabase
 SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
 JWT_SECRET=Gere sua Chave
+BCRYPT_ROUNDS=12
 PORT=4000
 ```
 
@@ -55,6 +56,7 @@ Crie/atualize as tabelas no Supabase usando:
 
 - [server/supabase/schema.sql](server/supabase/schema.sql)
 - [server/supabase/add_completed_at.sql](server/supabase/add_completed_at.sql), se o banco ja existia antes da coluna `completed_at`
+- [server/supabase/add_security_password_reset.sql](server/supabase/add_security_password_reset.sql), se o banco ja existia antes do reset por codigo
 
 Rode a API:
 
@@ -124,3 +126,25 @@ A documentacao curta do que foi alterado esta em [docs/2026-05-taskhub-supabase-
 Arquivos `.env` reais nao devem ir para o GitHub. Use apenas `.env.example` como modelo.
 
 Nunca exponha `SUPABASE_SERVICE_ROLE_KEY` no app mobile/web. Ela deve existir somente no backend.
+
+Medidas atuais:
+
+- Senhas novas usam `bcryptjs`; senhas antigas em SHA-256 sao migradas automaticamente no proximo login bem-sucedido.
+- Login, cadastro e reset de senha possuem rate limit.
+- O reset de senha agora exige codigo temporario de 6 digitos com validade de 15 minutos.
+- O backend registra o codigo no log da API para ambiente local/desenvolvimento. Para producao, conecte um provedor de e-mail antes de depender desse fluxo para usuarios finais.
+- Socket.IO exige JWT valido para entrar na sala do usuario.
+- O token de sessao do app fica em `expo-secure-store` quando disponivel, com fallback para web.
+- A API usa `helmet` e permite restringir CORS via `CORS_ORIGINS`.
+
+Depois de aplicar estas mudancas em um banco Supabase ja existente, rode:
+
+```sql
+alter table public.users
+add column if not exists password_reset_token_hash text;
+
+alter table public.users
+add column if not exists password_reset_expires_at bigint;
+```
+
+Como `expo-secure-store` adiciona modulo nativo/config plugin, gere uma nova build EAS para validar no app instalado.

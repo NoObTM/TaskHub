@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import mongoose from "mongoose";
 
 const USER_FIELDS = "id, name, email, avatar_uri, push_tokens, password_hash, salt, created_at";
-const TODO_FIELDS = "id, creator_id, assignee_id, title, done, completed_at, priority, due_date, notification_id, seen, created_at";
+const TODO_FIELDS = "id, creator_id, assignee_id, title, done, completed_at, priority, due_date, notification_id, seen, position, created_at";
 const ACTIVITY_FIELDS = "id, todo_id, actor_id, type, message, created_at";
 
 const userSchema = new mongoose.Schema(
@@ -13,6 +13,8 @@ const userSchema = new mongoose.Schema(
     pushTokens: { type: [String], default: [] },
     passwordHash: { type: String, required: true },
     salt: { type: String, required: true },
+    passwordResetTokenHash: { type: String, default: null },
+    passwordResetExpiresAt: { type: Number, default: null },
     createdAt: { type: Number, default: () => Date.now() },
   },
   { versionKey: false }
@@ -29,6 +31,7 @@ const todoSchema = new mongoose.Schema(
     dueDate: { type: Number, default: null },
     notificationId: { type: String, default: null },
     seen: { type: Boolean, default: false },
+    position: { type: Number, default: () => Date.now() },
     createdAt: { type: Number, default: () => Date.now() },
   },
   { versionKey: false }
@@ -84,6 +87,7 @@ function mapMongoTodo(todo) {
     dueDate: todo.dueDate ?? null,
     notificationId: todo.notificationId ?? null,
     seen: todo.seen,
+    position: todo.position ?? todo.createdAt,
     createdAt: todo.createdAt,
   };
 }
@@ -139,6 +143,7 @@ function mapSupabaseTodo(todo) {
     dueDate: todo.due_date == null ? null : Number(todo.due_date),
     notificationId: todo.notification_id ?? null,
     seen: todo.seen,
+    position: todo.position == null ? Number(todo.created_at) : Number(todo.position),
     createdAt: Number(todo.created_at),
   };
 }
@@ -163,6 +168,7 @@ function toSupabaseTodoInsert(input) {
     title: input.title,
     priority: input.priority ?? "medium",
     due_date: input.dueDate ?? null,
+    position: input.position ?? Date.now(),
     seen: input.seen ?? false,
   };
 }
@@ -209,7 +215,28 @@ function createMongoStore() {
     updateUserPasswordByEmail: async (email, salt, passwordHash) =>
       mapMongoUser(await User.findOneAndUpdate(
         { email },
-        { salt, passwordHash },
+        { salt, passwordHash, passwordResetTokenHash: null, passwordResetExpiresAt: null },
+        { new: true }
+      )),
+    setPasswordResetCode: async (email, tokenHash, expiresAt) =>
+      mapMongoUser(await User.findOneAndUpdate(
+        { email },
+        { passwordResetTokenHash: tokenHash, passwordResetExpiresAt: expiresAt },
+        { new: true }
+      )),
+    updateUserPasswordByResetCode: async (email, tokenHash, salt, passwordHash, now) =>
+      mapMongoUser(await User.findOneAndUpdate(
+        {
+          email,
+          passwordResetTokenHash: tokenHash,
+          passwordResetExpiresAt: { $gt: now },
+        },
+        {
+          salt,
+          passwordHash,
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+        },
         { new: true }
       )),
     listUsers: async () => (await User.find().sort({ name: 1 })).map(mapMongoUser),
@@ -233,7 +260,7 @@ function createMongoStore() {
       return (await Todo.find(query)
         .populate("creatorId", "name avatarUri")
         .populate("assigneeId", "name avatarUri")
-        .sort({ createdAt: -1 })
+        .sort({ position: -1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)).map(mapMongoTodoWithUsers);
     },
@@ -241,7 +268,7 @@ function createMongoStore() {
       (await Todo.find({ assigneeId: authedUserId, creatorId: { $ne: authedUserId }, seen: false })
         .populate("creatorId", "name avatarUri")
         .populate("assigneeId", "name avatarUri")
-        .sort({ createdAt: -1 })).map(mapMongoTodoWithUsers),
+        .sort({ position: -1, createdAt: -1 })).map(mapMongoTodoWithUsers),
     countUnread: async (authedUserId) =>
       Todo.countDocuments({ assigneeId: authedUserId, creatorId: { $ne: authedUserId }, seen: false }),
     createTodo: async (input) => mapMongoTodo(await Todo.create(input)),
@@ -278,6 +305,31 @@ function createMongoStore() {
         },
         { new: true }
       )),
+    reorderTodos: async (authedUserId, todoIds) => {
+      const visibleTodos = await Todo.find({
+        _id: { $in: todoIds },
+        $or: [{ creatorId: authedUserId }, { assigneeId: authedUserId }],
+      }).select("creatorId assigneeId");
+      const visibleIds = new Set(visibleTodos.map((todo) => String(todo._id)));
+      const now = Date.now();
+      await Promise.all(
+        todoIds
+          .filter((todoId) => visibleIds.has(todoId))
+          .map((todoId, index) =>
+            Todo.updateOne({ _id: todoId }, { position: now - index })
+          )
+      );
+      return {
+        affectedUserIds: [
+          ...new Set(
+            visibleTodos.flatMap((todo) => [
+              String(todo.creatorId),
+              String(todo.assigneeId),
+            ])
+          ),
+        ],
+      };
+    },
     updateNotificationByAssignee: async (todoId, authedUserId, notificationId) =>
       mapMongoTodo(await Todo.findOneAndUpdate({ _id: todoId, assigneeId: authedUserId }, { notificationId }, { new: true })),
     toggleTodoByAssignee: async (todoId, authedUserId, done) =>
@@ -337,8 +389,43 @@ function createSupabaseStore() {
     updateUserPasswordByEmail: async (email, salt, passwordHash) => {
       const { data, error } = await client
         .from("users")
-        .update({ salt, password_hash: passwordHash })
+        .update({
+          salt,
+          password_hash: passwordHash,
+          password_reset_token_hash: null,
+          password_reset_expires_at: null,
+        })
         .eq("email", email)
+        .select(USER_FIELDS)
+        .maybeSingle();
+      if (error) throw error;
+      return mapSupabaseUser(data);
+    },
+    setPasswordResetCode: async (email, tokenHash, expiresAt) => {
+      const { data, error } = await client
+        .from("users")
+        .update({
+          password_reset_token_hash: tokenHash,
+          password_reset_expires_at: expiresAt,
+        })
+        .eq("email", email)
+        .select(USER_FIELDS)
+        .maybeSingle();
+      if (error) throw error;
+      return mapSupabaseUser(data);
+    },
+    updateUserPasswordByResetCode: async (email, tokenHash, salt, passwordHash, now) => {
+      const { data, error } = await client
+        .from("users")
+        .update({
+          salt,
+          password_hash: passwordHash,
+          password_reset_token_hash: null,
+          password_reset_expires_at: null,
+        })
+        .eq("email", email)
+        .eq("password_reset_token_hash", tokenHash)
+        .gt("password_reset_expires_at", now)
         .select(USER_FIELDS)
         .maybeSingle();
       if (error) throw error;
@@ -375,7 +462,10 @@ function createSupabaseStore() {
       }
       if (search) query = query.ilike("title", `%${search.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
       const from = (page - 1) * limit;
-      const { data, error } = await query.order("created_at", { ascending: false }).range(from, from + limit - 1);
+      const { data, error } = await query
+        .order("position", { ascending: false })
+        .order("created_at", { ascending: false })
+        .range(from, from + limit - 1);
       if (error) throw error;
       return hydrateSupabaseTodos(client, data ?? []);
     },
@@ -386,6 +476,7 @@ function createSupabaseStore() {
         .eq("assignee_id", authedUserId)
         .neq("creator_id", authedUserId)
         .eq("seen", false)
+        .order("position", { ascending: false })
         .order("created_at", { ascending: false });
       if (error) throw error;
       return hydrateSupabaseTodos(client, data ?? []);
@@ -452,6 +543,41 @@ function createSupabaseStore() {
         .maybeSingle();
       if (error) throw error;
       return mapSupabaseTodo(data);
+    },
+    reorderTodos: async (authedUserId, todoIds) => {
+      const { data: visibleTodos, error: selectError } = await client
+        .from("todos")
+        .select("id, creator_id, assignee_id")
+        .in("id", todoIds)
+        .or(`creator_id.eq.${authedUserId},assignee_id.eq.${authedUserId}`);
+      if (selectError) throw selectError;
+
+      const visibleIds = new Set((visibleTodos ?? []).map((todo) => todo.id));
+      const now = Date.now();
+      await Promise.all(
+        todoIds
+          .filter((todoId) => visibleIds.has(todoId))
+          .map((todoId, index) =>
+            client
+              .from("todos")
+              .update({ position: now - index })
+              .eq("id", todoId)
+          )
+      ).then((results) => {
+        const error = results.find((result) => result.error)?.error;
+        if (error) throw error;
+      });
+
+      return {
+        affectedUserIds: [
+          ...new Set(
+            (visibleTodos ?? []).flatMap((todo) => [
+              todo.creator_id,
+              todo.assignee_id,
+            ])
+          ),
+        ],
+      };
     },
     updateNotificationByAssignee: async (todoId, authedUserId, notificationId) => {
       const { data, error } = await client

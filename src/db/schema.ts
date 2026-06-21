@@ -19,8 +19,6 @@ export type Todo = {
   dueDate: number | null;
   notificationId: string | null;
   seen: boolean;
+  position: number;
   createdAt: number;
 };
-
-export type NewUser = Omit<User, "id" | "createdAt">;
-export type NewTodo = Omit<Todo, "id" | "createdAt">;

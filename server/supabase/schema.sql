@@ -6,6 +6,8 @@ create table if not exists public.users (
   push_tokens text[] not null default '{}',
   password_hash text not null,
   salt text not null,
+  password_reset_token_hash text,
+  password_reset_expires_at bigint,
   created_at bigint not null default (extract(epoch from now()) * 1000)::bigint
 );
 
@@ -20,6 +22,7 @@ create table if not exists public.todos (
   due_date bigint,
   notification_id text,
   seen boolean not null default false,
+  position bigint not null default (extract(epoch from now()) * 1000)::bigint,
   created_at bigint not null default (extract(epoch from now()) * 1000)::bigint
 );
 
@@ -35,9 +38,13 @@ create table if not exists public.activities (
 create index if not exists todos_assignee_id_idx on public.todos(assignee_id);
 create index if not exists todos_creator_id_idx on public.todos(creator_id);
 create index if not exists todos_created_at_idx on public.todos(created_at desc);
+create index if not exists todos_position_idx on public.todos(position desc);
 create index if not exists activities_todo_id_created_at_idx on public.activities(todo_id, created_at desc);
 
 alter table public.todos add column if not exists completed_at bigint;
+alter table public.todos add column if not exists position bigint not null default (extract(epoch from now()) * 1000)::bigint;
+alter table public.users add column if not exists password_reset_token_hash text;
+alter table public.users add column if not exists password_reset_expires_at bigint;
 
 alter table public.users enable row level security;
 alter table public.todos enable row level security;

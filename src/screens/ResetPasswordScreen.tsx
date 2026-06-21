@@ -10,7 +10,7 @@ import Toast from "react-native-toast-message";
 import { AlertModal } from "@/components/ui/AlertModal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { resetPassword } from "@/db/auth";
+import { requestPasswordReset, resetPassword } from "@/db/auth";
 import { resetPasswordSchema, type ResetPasswordInput } from "@/lib/schemas";
 
 type Props = {
@@ -18,24 +18,48 @@ type Props = {
 };
 
 export function ResetPasswordScreen({ onNavigateLogin }: Props) {
+  const [requestingCode, setRequestingCode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [codeRequested, setCodeRequested] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { colorScheme } = useColorScheme();
   const iconColor = colorScheme === "dark" ? "#fafafa" : "#18181b";
 
   const {
     control,
+    getValues,
     handleSubmit,
+    trigger,
     formState: { errors },
   } = useForm<ResetPasswordInput>({
     resolver: zodResolver(resetPasswordSchema),
-    defaultValues: { email: "", password: "", confirmPassword: "" },
+    defaultValues: { email: "", resetCode: "", password: "", confirmPassword: "" },
   });
+
+  const handleRequestCode = async () => {
+    const validEmail = await trigger("email");
+    if (!validEmail) return;
+
+    setRequestingCode(true);
+    try {
+      await requestPasswordReset(getValues("email"));
+      setCodeRequested(true);
+      Toast.show({
+        type: "success",
+        text1: "Código solicitado",
+        text2: "Informe o código recebido para criar uma nova senha.",
+      });
+    } catch (e: any) {
+      setErrorMessage(e.message ?? String(e));
+    } finally {
+      setRequestingCode(false);
+    }
+  };
 
   const onSubmit = async (data: ResetPasswordInput) => {
     setSubmitting(true);
     try {
-      await resetPassword(data.email, data.password);
+      await resetPassword(data.email, data.resetCode, data.password);
       Toast.show({
         type: "success",
         text1: "Senha atualizada",
@@ -66,7 +90,7 @@ export function ResetPasswordScreen({ onNavigateLogin }: Props) {
       >
         <Text className="text-3xl font-bold text-zinc-950 dark:text-zinc-50">Redefinir senha</Text>
         <Text className="mt-2 text-base text-zinc-500 dark:text-zinc-400">
-          Informe seu e-mail e escolha uma nova senha
+          Solicite um código temporário e escolha uma nova senha
         </Text>
 
         <View className="mt-8 gap-4">
@@ -94,6 +118,42 @@ export function ResetPasswordScreen({ onNavigateLogin }: Props) {
             )}
           </View>
 
+          <Button
+            label={requestingCode ? "Solicitando..." : codeRequested ? "Solicitar novo código" : "Solicitar código"}
+            variant="outline"
+            onPress={handleRequestCode}
+            disabled={requestingCode || submitting}
+          />
+
+          {codeRequested && (
+            <Text className="text-xs text-zinc-500 dark:text-zinc-400">
+              Em ambiente local, confira o código no terminal da API. Em produção, conecte um provedor de e-mail para entregar esse código ao usuário.
+            </Text>
+          )}
+
+          <View>
+            <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
+              Código de segurança
+            </Text>
+            <Controller
+              control={control}
+              name="resetCode"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <Input
+                  placeholder="000000"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={value}
+                  onChangeText={(next) => onChange(next.replace(/\D/g, ""))}
+                  onBlur={onBlur}
+                />
+              )}
+            />
+            {errors.resetCode && (
+              <Text className="mt-1 text-xs text-red-500">{errors.resetCode.message}</Text>
+            )}
+          </View>
+
           <View>
             <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
               Nova senha
@@ -103,7 +163,7 @@ export function ResetPasswordScreen({ onNavigateLogin }: Props) {
               name="password"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
-                  placeholder="MÃ­nimo 6 caracteres"
+                  placeholder="Mínimo 6 caracteres"
                   secureTextEntry
                   value={value}
                   onChangeText={onChange}
@@ -143,7 +203,7 @@ export function ResetPasswordScreen({ onNavigateLogin }: Props) {
           <Button
             label={submitting ? "Salvando..." : "Salvar nova senha"}
             onPress={handleSubmit(onSubmit)}
-            disabled={submitting}
+            disabled={submitting || requestingCode}
           />
         </View>
       </KeyboardAwareScrollView>

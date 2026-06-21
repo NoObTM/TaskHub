@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState,
-  FlatList,
   Pressable,
   RefreshControl,
   Text,
   TextInput,
   View,
 } from "react-native";
+import DraggableFlatList, {
+  ScaleDecorator,
+  type RenderItemParams,
+} from "react-native-draggable-flatlist";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import * as ImagePicker from "expo-image-picker";
@@ -43,6 +46,7 @@ import {
   listTodos,
   listUnreadAssigned,
   markAllAsSeen,
+  reorderTodos,
   toggleTodo,
   updateTodoNotificationId,
   updateTodo,
@@ -62,9 +66,10 @@ import { io, type Socket } from "socket.io-client";
 
 type Tab = "mine" | "assigned-by-me";
 type StatusFilter = "all" | "pending" | "done";
-type SortKey = "createdAt" | "priority" | "dueDate";
+type SortKey = "manual" | "createdAt" | "priority" | "dueDate";
 
 const sortOptions = [
+  { value: "manual" as const, label: "Ordem manual" },
   { value: "createdAt" as const, label: "Mais recentes" },
   { value: "priority" as const, label: "Prioridade" },
   { value: "dueDate" as const, label: "Data limite" },
@@ -75,7 +80,9 @@ const PAGE_SIZE = 25;
 
 function applySort(items: TodoWithUsers[], sortBy: SortKey): TodoWithUsers[] {
   const copy = [...items];
-  if (sortBy === "createdAt") {
+  if (sortBy === "manual") {
+    copy.sort((a, b) => b.position - a.position || b.createdAt - a.createdAt);
+  } else if (sortBy === "createdAt") {
     copy.sort((a, b) => b.createdAt - a.createdAt);
   } else if (sortBy === "priority") {
     copy.sort(
@@ -133,7 +140,7 @@ export function TodoScreen() {
   const knownUnreadTodoIdsRef = useRef<Set<string> | null>(null);
   const [tab, setTab] = useState<Tab>("mine");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
-  const [sortBy, setSortBy] = useState<SortKey>("createdAt");
+  const [sortBy, setSortBy] = useState<SortKey>("manual");
   const [search, setSearch] = useState("");
   const [visiblePages, setVisiblePages] = useState(1);
   const [mineTodos, setMineTodos] = useState<TodoWithUsers[]>([]);
@@ -217,7 +224,7 @@ export function TodoScreen() {
 
     socket.on("connect", () => {
       setSocketStatus("connected");
-      socket.emit("auth", { token: getApiToken(), userId });
+      socket.emit("auth", { token: getApiToken() });
       scheduleRefresh();
     });
 
@@ -329,6 +336,41 @@ export function TodoScreen() {
       }
     },
     [refresh, userId, editing]
+  );
+
+  const handleReorder = useCallback(
+    async (data: TodoWithUsers[]) => {
+      if (sortBy !== "manual") return;
+
+      const nextPosition = Date.now();
+      const positions = new Map(
+        data.map((todo, index) => [todo.id, nextPosition - index])
+      );
+      const applyPositions = (source: TodoWithUsers[]) =>
+        source.map((todo) =>
+          positions.has(todo.id)
+            ? { ...todo, position: positions.get(todo.id)! }
+            : todo
+        );
+
+      if (tab === "mine") {
+        setMineTodos(applyPositions);
+      } else {
+        setAssignedByMe(applyPositions);
+      }
+
+      try {
+        await reorderTodos(data.map((todo) => todo.id));
+      } catch (e: any) {
+        Toast.show({
+          type: "error",
+          text1: "Erro ao salvar ordem",
+          text2: e?.message ?? String(e),
+        });
+        await refresh();
+      }
+    },
+    [refresh, sortBy, tab]
   );
 
   const handleToggle = useCallback(
@@ -597,11 +639,10 @@ export function TodoScreen() {
         </Pressable>
       </View>
 
-      <FlatList
+      <DraggableFlatList
         data={list}
         keyExtractor={(item) => String(item.id)}
-        contentContainerClassName="px-5 pb-6 gap-2"
-        ItemSeparatorComponent={() => <View className="h-2" />}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 8 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -609,18 +650,23 @@ export function TodoScreen() {
             tintColor={iconColor}
           />
         }
-        renderItem={({ item }) => (
-          <TodoItem
-            todo={item}
-            currentUserId={userId}
-            mode={tab}
-            onToggle={handleToggle}
-            onEdit={openEdit}
-            onDelete={setPendingDelete}
-            onHistory={openActivity}
-            onLongPress={openEdit}
-          />
+        renderItem={({ item, drag, isActive }: RenderItemParams<TodoWithUsers>) => (
+          <ScaleDecorator activeScale={1.02}>
+            <View className={isActive ? "opacity-90" : undefined}>
+              <TodoItem
+                todo={item}
+                currentUserId={userId}
+                mode={tab}
+                onToggle={handleToggle}
+                onEdit={openEdit}
+                onDelete={setPendingDelete}
+                onHistory={openActivity}
+                onLongPress={sortBy === "manual" ? () => drag() : undefined}
+              />
+            </View>
+          </ScaleDecorator>
         )}
+        onDragEnd={({ data }) => handleReorder(data)}
         onEndReachedThreshold={0.4}
         onEndReached={() => {
           if (list.length >= visiblePages * PAGE_SIZE) {

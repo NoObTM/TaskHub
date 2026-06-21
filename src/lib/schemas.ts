@@ -19,12 +19,13 @@ export const signupSchema = z
 
 export const resetPasswordSchema = z
   .object({
-    email: z.email("E-mail invÃ¡lido"),
-    password: z.string().min(6, "Senha deve ter no mÃ­nimo 6 caracteres"),
+    email: z.email("E-mail inválido"),
+    resetCode: z.string().regex(/^\d{6}$/, "Informe o código de 6 dígitos"),
+    password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: "As senhas nÃ£o coincidem",
+    message: "As senhas não coincidem",
     path: ["confirmPassword"],
   });
 

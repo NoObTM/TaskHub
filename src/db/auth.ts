@@ -59,10 +59,21 @@ export async function loginUser(
   }
 }
 
-export function resetPassword(email: string, password: string): Promise<void> {
+export function requestPasswordReset(email: string): Promise<void> {
+  return apiFetch<void>("/auth/reset-password/request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(
+  email: string,
+  resetCode: string,
+  password: string
+): Promise<void> {
   return apiFetch<void>("/auth/reset-password", {
     method: "PATCH",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, resetCode, password }),
   });
 }
 
