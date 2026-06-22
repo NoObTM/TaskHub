@@ -4,6 +4,7 @@ import type { User } from "./schema";
 export type RegisterInput = {
   name: string;
   email: string;
+  phone: string;
   password: string;
 };
 
@@ -19,6 +20,13 @@ export class EmailInUseError extends Error {
   }
 }
 
+export class PhoneInUseError extends Error {
+  constructor() {
+    super("Telefone ja cadastrado");
+    this.name = "PhoneInUseError";
+  }
+}
+
 export class InvalidCredentialsError extends Error {
   constructor() {
     super("E-mail ou senha inválidos");
@@ -28,6 +36,9 @@ export class InvalidCredentialsError extends Error {
 
 function mapAuthError(error: unknown): never {
   if (error instanceof ApiError) {
+    if (error.status === 409 && error.message.toLowerCase().includes("telefone")) {
+      throw new PhoneInUseError();
+    }
     if (error.status === 409) throw new EmailInUseError();
     if (error.status === 401) throw new InvalidCredentialsError();
   }
@@ -59,21 +70,21 @@ export async function loginUser(
   }
 }
 
-export function requestPasswordReset(email: string): Promise<void> {
+export function requestPasswordReset(phone: string): Promise<void> {
   return apiFetch<void>("/auth/reset-password/request", {
     method: "POST",
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ phone }),
   });
 }
 
 export function resetPassword(
-  email: string,
+  phone: string,
   resetCode: string,
   password: string
 ): Promise<void> {
   return apiFetch<void>("/auth/reset-password", {
     method: "PATCH",
-    body: JSON.stringify({ email, resetCode, password }),
+    body: JSON.stringify({ phone, resetCode, password }),
   });
 }
 

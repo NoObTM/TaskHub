@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/context/AuthContext";
 import { signupSchema, type SignupInput } from "@/lib/schemas";
-import { EmailInUseError } from "@/db/auth";
+import { EmailInUseError, PhoneInUseError } from "@/db/auth";
+import { formatBrazilianPhone } from "@/lib/phone";
 
 type Props = {
   onNavigateLogin: () => void;
@@ -31,16 +32,18 @@ export function SignupScreen({ onNavigateLogin }: Props) {
     formState: { errors },
   } = useForm<SignupInput>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
+    defaultValues: { name: "", email: "", phone: "", password: "", confirmPassword: "" },
   });
 
   const onSubmit = async (data: SignupInput) => {
     setSubmitting(true);
     try {
-      await register({ name: data.name, email: data.email, password: data.password });
+      await register({ name: data.name, email: data.email, phone: data.phone, password: data.password });
     } catch (e: any) {
       if (e instanceof EmailInUseError) {
         setError("email", { message: e.message });
+      } else if (e instanceof PhoneInUseError) {
+        setError("phone", { message: e.message });
       } else {
         setErrorMessage(e.message ?? String(e));
       }
@@ -113,6 +116,31 @@ export function SignupScreen({ onNavigateLogin }: Props) {
               />
               {errors.email && (
                 <Text className="mt-1 text-xs text-red-500">{errors.email.message}</Text>
+              )}
+            </View>
+
+            <View>
+              <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                Telefone
+              </Text>
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <Input
+                    placeholder="(11) 99999-9999"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="phone-pad"
+                    maxLength={14}
+                    value={value}
+                    onChangeText={(next) => onChange(formatBrazilianPhone(next))}
+                    onBlur={onBlur}
+                  />
+                )}
+              />
+              {errors.phone && (
+                <Text className="mt-1 text-xs text-red-500">{errors.phone.message}</Text>
               )}
             </View>
 

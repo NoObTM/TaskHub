@@ -1,4 +1,5 @@
-import { Pressable, Text, type PressableProps } from "react-native";
+import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
+import { useColorScheme } from "nativewind";
 import { cn } from "@/lib/utils";
 
 type Variant = "default" | "destructive" | "outline" | "ghost";
@@ -36,6 +37,7 @@ type Props = PressableProps & {
   label: string;
   className?: string;
   textClassName?: string;
+  loading?: boolean;
 };
 
 export function Button({
@@ -44,15 +46,30 @@ export function Button({
   label,
   className,
   textClassName,
+  loading = false,
+  disabled,
   ...rest
 }: Props) {
+  const { colorScheme } = useColorScheme();
   const v = variantStyles[variant];
   const s = sizeStyles[size];
+  const spinnerColor = variant === "default"
+    ? colorScheme === "dark" ? "#18181b" : "#fafafa"
+    : colorScheme === "dark" ? "#fafafa" : "#18181b";
+
   return (
     <Pressable
-      className={cn("flex-row items-center justify-center rounded-lg", v.bg, s.container, className)}
+      className={cn(
+        "flex-row items-center justify-center gap-2 rounded-lg",
+        v.bg,
+        s.container,
+        (disabled || loading) && "opacity-60",
+        className
+      )}
+      disabled={disabled || loading}
       {...rest}
     >
+      {loading && <ActivityIndicator size="small" color={spinnerColor} />}
       <Text className={cn("font-semibold", v.text, s.text, textClassName)}>{label}</Text>
     </Pressable>
   );

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import mongoose from "mongoose";
 
-const USER_FIELDS = "id, name, email, avatar_uri, push_tokens, password_hash, salt, created_at";
+const USER_FIELDS = "id, name, email, phone, avatar_uri, push_tokens, password_hash, salt, password_reset_expires_at, created_at";
 const TODO_FIELDS = "id, creator_id, assignee_id, title, done, completed_at, priority, due_date, notification_id, seen, position, created_at";
 const ACTIVITY_FIELDS = "id, todo_id, actor_id, type, message, created_at";
 
@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, unique: true, sparse: true, trim: true },
     avatarUri: { type: String, default: null },
     pushTokens: { type: [String], default: [] },
     passwordHash: { type: String, required: true },
@@ -66,10 +67,12 @@ function mapMongoUser(user) {
     id: String(user._id),
     name: user.name,
     email: user.email,
+    phone: user.phone ?? null,
     avatarUri: user.avatarUri ?? null,
     pushTokens: user.pushTokens ?? [],
     passwordHash: user.passwordHash,
     salt: user.salt,
+    passwordResetExpiresAt: user.passwordResetExpiresAt ?? null,
     createdAt: user.createdAt,
   };
 }
@@ -122,10 +125,12 @@ function mapSupabaseUser(user) {
     id: user.id,
     name: user.name,
     email: user.email,
+    phone: user.phone ?? null,
     avatarUri: user.avatar_uri ?? null,
     pushTokens: user.push_tokens ?? [],
     passwordHash: user.password_hash,
     salt: user.salt,
+    passwordResetExpiresAt: user.password_reset_expires_at == null ? null : Number(user.password_reset_expires_at),
     createdAt: Number(user.created_at),
   };
 }
@@ -208,13 +213,21 @@ function createMongoStore() {
     },
     findUserById: async (id) => mapMongoUser(await User.findById(id)),
     findUserByEmail: async (email) => mapMongoUser(await User.findOne({ email })),
+    findUserByPhone: async (phone) => mapMongoUser(await User.findOne({ phone })),
     userExistsById: async (id) => Boolean(await User.exists({ _id: id })),
     userExistsByEmail: async (email) => Boolean(await User.exists({ email })),
-    createUser: async ({ name, email, salt, passwordHash }) =>
-      mapMongoUser(await User.create({ name, email, salt, passwordHash })),
+    userExistsByPhone: async (phone) => Boolean(await User.exists({ phone })),
+    createUser: async ({ name, email, phone, salt, passwordHash }) =>
+      mapMongoUser(await User.create({ name, email, phone, salt, passwordHash })),
     updateUserPasswordByEmail: async (email, salt, passwordHash) =>
       mapMongoUser(await User.findOneAndUpdate(
         { email },
+        { salt, passwordHash, passwordResetTokenHash: null, passwordResetExpiresAt: null },
+        { new: true }
+      )),
+    updateUserPasswordByPhone: async (phone, salt, passwordHash) =>
+      mapMongoUser(await User.findOneAndUpdate(
+        { phone },
         { salt, passwordHash, passwordResetTokenHash: null, passwordResetExpiresAt: null },
         { new: true }
       )),
@@ -224,10 +237,31 @@ function createMongoStore() {
         { passwordResetTokenHash: tokenHash, passwordResetExpiresAt: expiresAt },
         { new: true }
       )),
+    setPasswordResetCodeByPhone: async (phone, tokenHash, expiresAt) =>
+      mapMongoUser(await User.findOneAndUpdate(
+        { phone },
+        { passwordResetTokenHash: tokenHash, passwordResetExpiresAt: expiresAt },
+        { new: true }
+      )),
     updateUserPasswordByResetCode: async (email, tokenHash, salt, passwordHash, now) =>
       mapMongoUser(await User.findOneAndUpdate(
         {
           email,
+          passwordResetTokenHash: tokenHash,
+          passwordResetExpiresAt: { $gt: now },
+        },
+        {
+          salt,
+          passwordHash,
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+        },
+        { new: true }
+      )),
+    updateUserPasswordByResetCodeByPhone: async (phone, tokenHash, salt, passwordHash, now) =>
+      mapMongoUser(await User.findOneAndUpdate(
+        {
+          phone,
           passwordResetTokenHash: tokenHash,
           passwordResetExpiresAt: { $gt: now },
         },
@@ -375,12 +409,14 @@ function createSupabaseStore() {
     },
     findUserById: async (id) => mapSupabaseUser(await single(client.from("users").select(USER_FIELDS).eq("id", id))),
     findUserByEmail: async (email) => mapSupabaseUser(await single(client.from("users").select(USER_FIELDS).eq("email", email))),
+    findUserByPhone: async (phone) => mapSupabaseUser(await single(client.from("users").select(USER_FIELDS).eq("phone", phone))),
     userExistsById: async (id) => Boolean(await single(client.from("users").select("id").eq("id", id))),
     userExistsByEmail: async (email) => Boolean(await single(client.from("users").select("id").eq("email", email))),
-    createUser: async ({ name, email, salt, passwordHash }) => {
+    userExistsByPhone: async (phone) => Boolean(await single(client.from("users").select("id").eq("phone", phone))),
+    createUser: async ({ name, email, phone, salt, passwordHash }) => {
       const { data, error } = await client
         .from("users")
-        .insert({ name, email, salt, password_hash: passwordHash })
+        .insert({ name, email, phone, salt, password_hash: passwordHash })
         .select(USER_FIELDS)
         .single();
       if (error) throw error;
@@ -401,6 +437,21 @@ function createSupabaseStore() {
       if (error) throw error;
       return mapSupabaseUser(data);
     },
+    updateUserPasswordByPhone: async (phone, salt, passwordHash) => {
+      const { data, error } = await client
+        .from("users")
+        .update({
+          salt,
+          password_hash: passwordHash,
+          password_reset_token_hash: null,
+          password_reset_expires_at: null,
+        })
+        .eq("phone", phone)
+        .select(USER_FIELDS)
+        .maybeSingle();
+      if (error) throw error;
+      return mapSupabaseUser(data);
+    },
     setPasswordResetCode: async (email, tokenHash, expiresAt) => {
       const { data, error } = await client
         .from("users")
@@ -409,6 +460,19 @@ function createSupabaseStore() {
           password_reset_expires_at: expiresAt,
         })
         .eq("email", email)
+        .select(USER_FIELDS)
+        .maybeSingle();
+      if (error) throw error;
+      return mapSupabaseUser(data);
+    },
+    setPasswordResetCodeByPhone: async (phone, tokenHash, expiresAt) => {
+      const { data, error } = await client
+        .from("users")
+        .update({
+          password_reset_token_hash: tokenHash,
+          password_reset_expires_at: expiresAt,
+        })
+        .eq("phone", phone)
         .select(USER_FIELDS)
         .maybeSingle();
       if (error) throw error;
@@ -424,6 +488,23 @@ function createSupabaseStore() {
           password_reset_expires_at: null,
         })
         .eq("email", email)
+        .eq("password_reset_token_hash", tokenHash)
+        .gt("password_reset_expires_at", now)
+        .select(USER_FIELDS)
+        .maybeSingle();
+      if (error) throw error;
+      return mapSupabaseUser(data);
+    },
+    updateUserPasswordByResetCodeByPhone: async (phone, tokenHash, salt, passwordHash, now) => {
+      const { data, error } = await client
+        .from("users")
+        .update({
+          salt,
+          password_hash: passwordHash,
+          password_reset_token_hash: null,
+          password_reset_expires_at: null,
+        })
+        .eq("phone", phone)
         .eq("password_reset_token_hash", tokenHash)
         .gt("password_reset_expires_at", now)
         .select(USER_FIELDS)

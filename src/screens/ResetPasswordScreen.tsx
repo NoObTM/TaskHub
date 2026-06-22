@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
@@ -11,6 +11,7 @@ import { AlertModal } from "@/components/ui/AlertModal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { requestPasswordReset, resetPassword } from "@/db/auth";
+import { formatBrazilianPhone } from "@/lib/phone";
 import { resetPasswordSchema, type ResetPasswordInput } from "@/lib/schemas";
 
 type Props = {
@@ -18,9 +19,11 @@ type Props = {
 };
 
 export function ResetPasswordScreen({ onNavigateLogin }: Props) {
+  const requestInFlightRef = useRef(false);
   const [requestingCode, setRequestingCode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [codeRequested, setCodeRequested] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { colorScheme } = useColorScheme();
   const iconColor = colorScheme === "dark" ? "#fafafa" : "#18181b";
@@ -33,33 +36,56 @@ export function ResetPasswordScreen({ onNavigateLogin }: Props) {
     formState: { errors },
   } = useForm<ResetPasswordInput>({
     resolver: zodResolver(resetPasswordSchema),
-    defaultValues: { email: "", resetCode: "", password: "", confirmPassword: "" },
+    defaultValues: { phone: "", resetCode: "", password: "", confirmPassword: "" },
   });
 
-  const handleRequestCode = async () => {
-    const validEmail = await trigger("email");
-    if (!validEmail) return;
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
 
+    const timeout = setTimeout(() => {
+      setResendCooldown((current) => Math.max(current - 1, 0));
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [resendCooldown]);
+
+  const handleRequestCode = async () => {
+    if (requestInFlightRef.current || requestingCode || resendCooldown > 0) return;
+
+    const validPhone = await trigger("phone");
+    if (!validPhone) return;
+
+    requestInFlightRef.current = true;
     setRequestingCode(true);
     try {
-      await requestPasswordReset(getValues("email"));
+      await requestPasswordReset(getValues("phone"));
       setCodeRequested(true);
+      setResendCooldown(60);
       Toast.show({
         type: "success",
-        text1: "Código solicitado",
-        text2: "Informe o código recebido para criar uma nova senha.",
+        text1: "Codigo solicitado",
+        text2: "Informe o codigo recebido por SMS para criar uma nova senha.",
       });
     } catch (e: any) {
       setErrorMessage(e.message ?? String(e));
     } finally {
+      requestInFlightRef.current = false;
       setRequestingCode(false);
     }
   };
 
+  const requestCodeLabel = requestingCode
+    ? "Solicitando..."
+    : codeRequested
+      ? resendCooldown > 0
+        ? `Solicitar novamente (${resendCooldown}s)`
+        : "Solicitar novamente"
+      : "Solicitar codigo";
+
   const onSubmit = async (data: ResetPasswordInput) => {
     setSubmitting(true);
     try {
-      await resetPassword(data.email, data.resetCode, data.password);
+      await resetPassword(data.phone, data.resetCode, data.password);
       Toast.show({
         type: "success",
         text1: "Senha atualizada",
@@ -90,121 +116,127 @@ export function ResetPasswordScreen({ onNavigateLogin }: Props) {
       >
         <Text className="text-3xl font-bold text-zinc-950 dark:text-zinc-50">Redefinir senha</Text>
         <Text className="mt-2 text-base text-zinc-500 dark:text-zinc-400">
-          Solicite um código temporário e escolha uma nova senha
+          Informe seu telefone para receber um codigo por SMS
         </Text>
 
         <View className="mt-8 gap-4">
           <View>
             <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
-              E-mail
+              Telefone
             </Text>
             <Controller
               control={control}
-              name="email"
+              name="phone"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
-                  placeholder="seu@email.com"
+                  placeholder="(11) 99999-9999"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  keyboardType="email-address"
+                  keyboardType="phone-pad"
+                  maxLength={14}
                   value={value}
-                  onChangeText={onChange}
+                  onChangeText={(next) => onChange(formatBrazilianPhone(next))}
                   onBlur={onBlur}
                 />
               )}
             />
-            {errors.email && (
-              <Text className="mt-1 text-xs text-red-500">{errors.email.message}</Text>
+            {errors.phone && (
+              <Text className="mt-1 text-xs text-red-500">{errors.phone.message}</Text>
             )}
           </View>
 
           <Button
-            label={requestingCode ? "Solicitando..." : codeRequested ? "Solicitar novo código" : "Solicitar código"}
+            label={requestCodeLabel}
             variant="outline"
             onPress={handleRequestCode}
-            disabled={requestingCode || submitting}
+            disabled={submitting}
+            loading={requestingCode || resendCooldown > 0}
           />
 
           {codeRequested && (
             <Text className="text-xs text-zinc-500 dark:text-zinc-400">
-              Em ambiente local, confira o código no terminal da API. Em produção, conecte um provedor de e-mail para entregar esse código ao usuário.
+              Enviamos um SMS para o telefone informado. Em ambiente local sem Twilio, confira o codigo no terminal da API.
             </Text>
           )}
 
-          <View>
-            <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
-              Código de segurança
-            </Text>
-            <Controller
-              control={control}
-              name="resetCode"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <Input
-                  placeholder="000000"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  value={value}
-                  onChangeText={(next) => onChange(next.replace(/\D/g, ""))}
-                  onBlur={onBlur}
+          {codeRequested && (
+            <>
+              <View>
+                <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                  Codigo de seguranca
+                </Text>
+                <Controller
+                  control={control}
+                  name="resetCode"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <Input
+                      placeholder="000000"
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      value={value}
+                      onChangeText={(next) => onChange(next.replace(/\D/g, ""))}
+                      onBlur={onBlur}
+                    />
+                  )}
                 />
-              )}
-            />
-            {errors.resetCode && (
-              <Text className="mt-1 text-xs text-red-500">{errors.resetCode.message}</Text>
-            )}
-          </View>
+                {errors.resetCode && (
+                  <Text className="mt-1 text-xs text-red-500">{errors.resetCode.message}</Text>
+                )}
+              </View>
 
-          <View>
-            <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
-              Nova senha
-            </Text>
-            <Controller
-              control={control}
-              name="password"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <Input
-                  placeholder="Mínimo 6 caracteres"
-                  secureTextEntry
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+              <View>
+                <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                  Nova senha
+                </Text>
+                <Controller
+                  control={control}
+                  name="password"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <Input
+                      placeholder="Minimo 6 caracteres"
+                      secureTextEntry
+                      value={value}
+                      onChangeText={onChange}
+                      onBlur={onBlur}
+                    />
+                  )}
                 />
-              )}
-            />
-            {errors.password && (
-              <Text className="mt-1 text-xs text-red-500">{errors.password.message}</Text>
-            )}
-          </View>
+                {errors.password && (
+                  <Text className="mt-1 text-xs text-red-500">{errors.password.message}</Text>
+                )}
+              </View>
 
-          <View>
-            <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
-              Confirmar nova senha
-            </Text>
-            <Controller
-              control={control}
-              name="confirmPassword"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <Input
-                  placeholder="Repita a nova senha"
-                  secureTextEntry
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
+              <View>
+                <Text className="mb-1.5 text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                  Confirmar nova senha
+                </Text>
+                <Controller
+                  control={control}
+                  name="confirmPassword"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <Input
+                      placeholder="Repita a nova senha"
+                      secureTextEntry
+                      value={value}
+                      onChangeText={onChange}
+                      onBlur={onBlur}
+                    />
+                  )}
                 />
-              )}
-            />
-            {errors.confirmPassword && (
-              <Text className="mt-1 text-xs text-red-500">
-                {errors.confirmPassword.message}
-              </Text>
-            )}
-          </View>
+                {errors.confirmPassword && (
+                  <Text className="mt-1 text-xs text-red-500">
+                    {errors.confirmPassword.message}
+                  </Text>
+                )}
+              </View>
 
-          <Button
-            label={submitting ? "Salvando..." : "Salvar nova senha"}
-            onPress={handleSubmit(onSubmit)}
-            disabled={submitting || requestingCode}
-          />
+              <Button
+                label={submitting ? "Salvando..." : "Salvar nova senha"}
+                onPress={handleSubmit(onSubmit)}
+                disabled={submitting || requestingCode}
+              />
+            </>
+          )}
         </View>
       </KeyboardAwareScrollView>
 

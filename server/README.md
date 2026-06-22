@@ -27,6 +27,16 @@ JWT_SECRET=uma-chave-grande
 PORT=4000
 ```
 
+Para enviar codigo de reset por SMS via Twilio Verify:
+
+```env
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=seu-auth-token
+TWILIO_VERIFY_SERVICE_SID=VAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Sem essas variaveis, o reset funciona em modo local e imprime o codigo no terminal da API.
+
 Crie as tabelas no Supabase com:
 
 ```sql
@@ -37,6 +47,12 @@ Se o banco ja existia antes da coluna de finalizacao, rode tambem:
 
 ```sql
 server/supabase/add_completed_at.sql
+```
+
+Se o banco ja existia antes do telefone no usuario, rode tambem:
+
+```sql
+server/supabase/add_user_phone.sql
 ```
 
 ## Setup com MongoDB

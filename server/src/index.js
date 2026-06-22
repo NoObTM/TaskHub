@@ -9,6 +9,7 @@ import http from "node:http";
 import { v2 as cloudinary } from "cloudinary";
 import { Expo } from "expo-server-sdk";
 import jwt from "jsonwebtoken";
+import twilio from "twilio";
 import { Server as SocketIOServer } from "socket.io";
 import { createStore } from "./store.js";
 
@@ -19,12 +20,20 @@ const jwtSecret = process.env.JWT_SECRET;
 const TODO_REMINDER_CHANNEL_ID = "todo-reminders";
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS ?? 12);
 const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
+const PASSWORD_RESET_RESEND_COOLDOWN_MS = 60 * 1000;
+const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+const twilioVerifyServiceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
 if (!jwtSecret) {
   throw new Error("JWT_SECRET ausente. Defina uma chave forte em server/.env.");
 }
 
 const store = createStore();
 const expo = new Expo();
+const twilioVerifyClient = twilioAccountSid && twilioAuthToken && twilioVerifyServiceSid
+  ? twilio(twilioAccountSid, twilioAuthToken)
+  : null;
+const passwordResetRequests = new Map();
 const httpServer = http.createServer(app);
 const allowedOrigins = (process.env.CORS_ORIGINS ?? "")
   .split(",")
@@ -85,6 +94,26 @@ function hashResetCode(code) {
 
 function createResetCode() {
   return String(crypto.randomInt(100000, 1000000));
+}
+
+function normalizePhoneNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const cleaned = raw.replace(/[^\d+]/g, "");
+  if (cleaned.startsWith("00")) return `+${cleaned.slice(2).replace(/\D/g, "")}`;
+  if (cleaned.startsWith("+")) return `+${cleaned.slice(1).replace(/\D/g, "")}`;
+
+  const digits = cleaned.replace(/\D/g, "");
+  if (digits.length === 10 || digits.length === 11) return `+55${digits}`;
+  return `+${digits}`;
+}
+
+function isValidPhoneNumber(phone) {
+  return /^\+[1-9]\d{9,14}$/.test(phone);
+}
+
+function maskPhone(phone) {
+  return phone ? `${phone.slice(0, 3)}***${phone.slice(-4)}` : "";
 }
 
 function publicUser(user) {
@@ -198,6 +227,45 @@ async function sendPushToUsers(userIds, title, body, data = {}) {
   }
 }
 
+async function sendPasswordResetCode(phone, resetCode) {
+  if (!twilioVerifyClient) {
+    console.info(`[password-reset] Codigo para ${phone}: ${resetCode} (expira em 15 min)`);
+    return;
+  }
+
+  const verification = await twilioVerifyClient.verify.v2
+    .services(twilioVerifyServiceSid)
+    .verifications.create({
+      channel: "sms",
+      to: phone,
+    });
+  console.info(
+    `[password-reset] Twilio Verify solicitado para ${maskPhone(phone)}: ${verification.sid} (${verification.status})`
+  );
+}
+
+async function verifyPasswordResetCode(phone, resetCode) {
+  if (!twilioVerifyClient) return null;
+
+  let verificationCheck;
+  try {
+    verificationCheck = await twilioVerifyClient.verify.v2
+      .services(twilioVerifyServiceSid)
+      .verificationChecks.create({
+        code: resetCode,
+        to: phone,
+      });
+  } catch (error) {
+    if (error?.status === 404 || error?.code === 20404) {
+      console.warn(`[password-reset] Twilio Verify nao encontrou verificacao ativa para ${maskPhone(phone)}`);
+      return false;
+    }
+    throw error;
+  }
+
+  return verificationCheck.status === "approved" || verificationCheck.valid === true;
+}
+
 io.on("connection", (socket) => {
   socket.on("auth", ({ token }) => {
     try {
@@ -221,18 +289,24 @@ app.get("/health", (_, res) => res.json({ ok: true, db: store.provider }));
 app.post("/auth/register", authLimiter, asyncRoute(async (req, res) => {
   const name = String(req.body.name ?? "").trim();
   const email = String(req.body.email ?? "").trim().toLowerCase();
+  const phone = normalizePhoneNumber(req.body.phone);
   const password = String(req.body.password ?? "");
 
-  if (!name || !email || password.length < 6) {
+  if (!name || !email || !isValidPhoneNumber(phone) || password.length < 6) {
     return res.status(400).json({ message: "Dados invalidos" });
   }
 
-  const exists = await store.userExistsByEmail(email);
-  if (exists) return res.status(409).json({ message: "E-mail ja cadastrado" });
+  const [emailExists, phoneExists] = await Promise.all([
+    store.userExistsByEmail(email),
+    store.userExistsByPhone(phone),
+  ]);
+  if (emailExists) return res.status(409).json({ message: "E-mail ja cadastrado" });
+  if (phoneExists) return res.status(409).json({ message: "Telefone ja cadastrado" });
 
   const user = await store.createUser({
     name,
     email,
+    phone,
     salt: "bcrypt",
     passwordHash: await hashPassword(password),
   });
@@ -258,42 +332,65 @@ app.post("/auth/login", authLimiter, asyncRoute(async (req, res) => {
 }));
 
 app.post("/auth/reset-password/request", resetLimiter, asyncRoute(async (req, res) => {
-  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const phone = normalizePhoneNumber(req.body.phone);
 
-  if (!email) {
+  if (!isValidPhoneNumber(phone)) {
     return res.status(400).json({ message: "Dados invalidos" });
   }
 
-  const resetCode = createResetCode();
-  const user = await store.setPasswordResetCode(
-    email,
-    hashResetCode(resetCode),
-    Date.now() + PASSWORD_RESET_TTL_MS
-  );
+  const user = await store.findUserByPhone(phone);
 
   if (user) {
-    console.info(`[password-reset] Codigo para ${email}: ${resetCode} (expira em 15 min)`);
+    const now = Date.now();
+    const lastRequestAt = passwordResetRequests.get(phone) ?? 0;
+    const persistedLastRequestAt = user.passwordResetExpiresAt
+      ? user.passwordResetExpiresAt - PASSWORD_RESET_TTL_MS
+      : 0;
+    if (
+      now - lastRequestAt < PASSWORD_RESET_RESEND_COOLDOWN_MS ||
+      now - persistedLastRequestAt < PASSWORD_RESET_RESEND_COOLDOWN_MS
+    ) {
+      console.info(`[password-reset] Reenvio bloqueado por cooldown para ${maskPhone(phone)}`);
+      return res.status(204).end();
+    }
+    passwordResetRequests.set(phone, now);
+
+    const resetCode = createResetCode();
+    await store.setPasswordResetCodeByPhone(
+      phone,
+      twilioVerifyClient ? null : hashResetCode(resetCode),
+      now + PASSWORD_RESET_TTL_MS
+    );
+    sendPasswordResetCode(phone, resetCode).catch((error) => {
+      console.error("Erro ao enviar codigo de reset por SMS", error);
+    });
   }
 
   res.status(204).end();
 }));
 
 app.patch("/auth/reset-password", resetLimiter, asyncRoute(async (req, res) => {
-  const email = String(req.body.email ?? "").trim().toLowerCase();
+  const phone = normalizePhoneNumber(req.body.phone);
   const resetCode = String(req.body.resetCode ?? "").trim();
   const password = String(req.body.password ?? "");
 
-  if (!email || !/^\d{6}$/.test(resetCode) || password.length < 6) {
+  if (!isValidPhoneNumber(phone) || !/^\d{6}$/.test(resetCode) || password.length < 6) {
     return res.status(400).json({ message: "Dados invalidos" });
   }
 
-  const user = await store.updateUserPasswordByResetCode(
-    email,
-    hashResetCode(resetCode),
-    "bcrypt",
-    await hashPassword(password),
-    Date.now()
-  );
+  const passwordHash = await hashPassword(password);
+  const twilioApproved = await verifyPasswordResetCode(phone, resetCode);
+  const user = twilioApproved === null
+    ? await store.updateUserPasswordByResetCodeByPhone(
+        phone,
+        hashResetCode(resetCode),
+        "bcrypt",
+        passwordHash,
+        Date.now()
+      )
+    : twilioApproved
+      ? await store.updateUserPasswordByPhone(phone, "bcrypt", passwordHash)
+      : null;
 
   if (!user) return res.status(400).json({ message: "Codigo invalido ou expirado" });
   res.status(204).end();

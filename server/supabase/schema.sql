@@ -2,6 +2,7 @@ create table if not exists public.users (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   email text not null unique,
+  phone text,
   avatar_uri text,
   push_tokens text[] not null default '{}',
   password_hash text not null,
@@ -43,8 +44,10 @@ create index if not exists activities_todo_id_created_at_idx on public.activitie
 
 alter table public.todos add column if not exists completed_at bigint;
 alter table public.todos add column if not exists position bigint not null default (extract(epoch from now()) * 1000)::bigint;
+alter table public.users add column if not exists phone text;
 alter table public.users add column if not exists password_reset_token_hash text;
 alter table public.users add column if not exists password_reset_expires_at bigint;
+create unique index if not exists users_phone_unique_idx on public.users(phone) where phone is not null;
 
 alter table public.users enable row level security;
 alter table public.todos enable row level security;

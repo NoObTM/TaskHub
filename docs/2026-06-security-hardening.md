@@ -25,13 +25,14 @@ O fluxo antigo permitia trocar senha apenas sabendo o e-mail. Isso foi removido.
 
 Fluxo atual:
 
-1. App chama `POST /auth/reset-password/request` com o e-mail.
-2. API gera um codigo numerico de 6 digitos, salva somente o hash e define expiracao de 15 minutos.
-3. Em ambiente local/desenvolvimento, a API escreve o codigo no log do terminal.
-4. App chama `PATCH /auth/reset-password` com e-mail, codigo e nova senha.
-5. Se o codigo bater e nao estiver expirado, a senha e atualizada com bcrypt e o codigo e invalidado.
+1. App chama `POST /auth/reset-password/request` com o telefone.
+2. Se `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` e `TWILIO_VERIFY_SERVICE_SID` estiverem configurados, a API envia o codigo por SMS via Twilio Verify.
+3. Sem Twilio configurado, a API gera um codigo numerico de 6 digitos, salva somente o hash, define expiracao de 15 minutos e escreve o codigo no log do terminal para teste local.
+4. App chama `PATCH /auth/reset-password` com telefone, codigo e nova senha.
+5. Com Twilio, a API valida o codigo no Twilio Verify; sem Twilio, valida contra o hash local.
+6. Se o codigo bater, a senha e atualizada com bcrypt e o codigo local e invalidado quando aplicavel.
 
-Para producao, o ideal e integrar envio de e-mail/SMS. Ate la, o codigo fica disponivel apenas nos logs da API.
+Para producao sem dominio de e-mail, o caminho recomendado e SMS via Twilio Verify.
 
 ## Supabase
 
@@ -43,13 +44,23 @@ add column if not exists password_reset_token_hash text;
 
 alter table public.users
 add column if not exists password_reset_expires_at bigint;
+
+alter table public.users
+add column if not exists phone text;
+
+create unique index if not exists users_phone_unique_idx
+on public.users(phone)
+where phone is not null;
 ```
 
 O arquivo pronto esta em:
 
 - `server/supabase/add_security_password_reset.sql`
+- `server/supabase/add_user_phone.sql`
 
 O `schema.sql` principal tambem foi atualizado.
+
+Usuarios antigos precisam receber um telefone no formato internacional, como `+5511999999999`, para usar recuperacao por SMS.
 
 ## App
 
@@ -59,8 +70,19 @@ O `schema.sql` principal tambem foi atualizado.
 - Tokens antigos em AsyncStorage sao migrados automaticamente para SecureStore no proximo carregamento do app.
 - Como `expo-secure-store` e um modulo nativo/config plugin, gere uma nova build EAS para garantir o suporte no app instalado.
 
+## Twilio Verify
+
+Variaveis usadas pela API:
+
+```env
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=seu-auth-token
+TWILIO_VERIFY_SERVICE_SID=VAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Se elas nao estiverem preenchidas, o fluxo continua funcionando em modo local com codigo no terminal da API.
+
 ## Limitacoes restantes
 
-- O app ainda nao possui provedor real de e-mail para reset de senha em producao.
 - `CORS_ORIGINS` precisa ser preenchido no Render se houver frontend web publico.
 - Tokens JWT ainda duram 30 dias e nao ha lista de revogacao. Para maior seguranca, reduzir expiracao e implementar refresh/revogacao.

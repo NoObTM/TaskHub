@@ -5,6 +5,7 @@ TaskHub e um app de tarefas colaborativas feito com Expo, React Native e uma API
 ## Funcionalidades
 
 - Cadastro e login com JWT.
+- Recuperacao de senha por codigo SMS via Twilio Verify.
 - Avatar de usuario com upload opcional para Cloudinary.
 - Criacao, edicao, conclusao e exclusao de tarefas.
 - Tarefas para voce e tarefas que voce designou para outras pessoas.
@@ -22,6 +23,7 @@ TaskHub e um app de tarefas colaborativas feito com Expo, React Native e uma API
 - NativeWind/Tailwind
 - Express
 - Supabase ou MongoDB Atlas
+- Twilio Verify opcional para SMS
 - Socket.IO
 - JWT
 - Cloudinary opcional
@@ -52,11 +54,20 @@ BCRYPT_ROUNDS=12
 PORT=4000
 ```
 
+Para testar reset de senha localmente sem Twilio, nenhuma variavel extra e necessaria: o codigo aparece no terminal da API. Para enviar SMS real, preencha tambem:
+
+```env
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=seu-auth-token
+TWILIO_VERIFY_SERVICE_SID=VAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
 Crie/atualize as tabelas no Supabase usando:
 
 - [server/supabase/schema.sql](server/supabase/schema.sql)
 - [server/supabase/add_completed_at.sql](server/supabase/add_completed_at.sql), se o banco ja existia antes da coluna `completed_at`
 - [server/supabase/add_security_password_reset.sql](server/supabase/add_security_password_reset.sql), se o banco ja existia antes do reset por codigo
+- [server/supabase/add_user_phone.sql](server/supabase/add_user_phone.sql), se o banco ja existia antes do telefone no usuario
 
 Rode a API:
 
@@ -89,7 +100,8 @@ No Render:
 3. Garanta que `DB_PROVIDER` esteja como `supabase`.
 4. Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`.
 5. Defina `JWT_SECRET` ou deixe o Render gerar uma chave.
-6. Opcionalmente preencha `CLOUDINARY_URL`.
+6. Para reset por SMS, preencha `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` e `TWILIO_VERIFY_SERVICE_SID`.
+7. Opcionalmente preencha `CLOUDINARY_URL`.
 
 Depois de cada push com alteracoes no backend, faca redeploy da API no Render caso o deploy automatico nao esteja ativo.
 
@@ -131,8 +143,8 @@ Medidas atuais:
 
 - Senhas novas usam `bcryptjs`; senhas antigas em SHA-256 sao migradas automaticamente no proximo login bem-sucedido.
 - Login, cadastro e reset de senha possuem rate limit.
-- O reset de senha agora exige codigo temporario de 6 digitos com validade de 15 minutos.
-- O backend registra o codigo no log da API para ambiente local/desenvolvimento. Para producao, conecte um provedor de e-mail antes de depender desse fluxo para usuarios finais.
+- O reset de senha agora exige codigo temporario de 6 digitos enviado por SMS via Twilio Verify.
+- Sem Twilio configurado, o backend registra o codigo no log da API para ambiente local/desenvolvimento.
 - Socket.IO exige JWT valido para entrar na sala do usuario.
 - O token de sessao do app fica em `expo-secure-store` quando disponivel, com fallback para web.
 - A API usa `helmet` e permite restringir CORS via `CORS_ORIGINS`.
@@ -145,6 +157,13 @@ add column if not exists password_reset_token_hash text;
 
 alter table public.users
 add column if not exists password_reset_expires_at bigint;
+
+alter table public.users
+add column if not exists phone text;
+
+create unique index if not exists users_phone_unique_idx
+on public.users(phone)
+where phone is not null;
 ```
 
 Como `expo-secure-store` adiciona modulo nativo/config plugin, gere uma nova build EAS para validar no app instalado.
